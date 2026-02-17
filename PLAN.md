@@ -1,74 +1,80 @@
-﻿# PLAN.md - 3DXFlat Standalone Prep (Local)
+# PLAN.md - 3DXFlat Standalone Prep (Local)
 
-Date executed: 2026-02-17
+Date executed: 2026-02-17  
 Workspace: `C:\Users\Amilapcs\source\repos\3DXFlat`
 
 ## 1) Repo Hygiene (Completed)
 
 Actions:
 - Removed compiled artifacts from `flatten_surface/__pycache__/`.
-- Verified no remaining `*.pyc` files in the workspace.
-- Updated `.gitignore` to explicitly include:
+- Verified no committed `*.pyc` artifacts remain.
+- Ensured `.gitignore` includes:
   - `flatten_surface/__pycache__/`
-  - `*.pyc` (in addition to existing `*.py[cod]`)
-
-Commands used:
-```powershell
-cmd /c rmdir /s /q flatten_surface\__pycache__
-```
+  - `*.pyc`
 
 ## 2) Branding Pass (Completed)
 
 Actions:
-- Rebranded README and runtime/UI text from legacy names to `3DXFlat`.
-- Removed legacy branch wording from README.
-- Updated launch/log strings and UI window titles where applicable.
+- Product name standardized to `3DXFlat` in launcher/docs strings.
+- Legacy launcher naming removed from primary startup path.
 
-Files updated for branding:
-- `Readme.md`
-- `main.py`
-- `gui.py`
-- `qt_app/__init__.py`
-- `qt_app/ribbon_window.py`
-- `qt_app/main_window.py`
-- `run.bat`
-- `tent_maker_pro.bat` (file kept for compatibility; text rebranded)
+Launcher updates:
+- Renamed `tent_maker_pro.bat` to `3DXFlat.bat`.
+- Updated `run.bat` to delegate to `3DXFlat.bat` (compatibility path now uses same startup behavior).
 
 ## 3) Legal / Notices (Completed)
 
 Actions:
-- Replaced incorrect content in `THIRD_PARTY_NOTICES.md` with a proper dependency-based notice.
-- Listed third-party dependencies from `requirements.txt`.
-- Added explicit no-authorship claim for third-party components.
+- `THIRD_PARTY_NOTICES.md` remains dependency-based and does not claim authorship of third-party components.
+- No vendored third-party source folders were found that needed extra attribution blocks.
 
-Assumptions and constraints:
-- No vendored third-party source code was found in this repository.
-- No top-level `LICENSE` file existed at execution time; this was not created automatically to avoid choosing a license without owner direction.
+## 4) Runtime Verification (Completed)
 
-## 4) Runtime Verification (Completed from Fresh Venv)
-
-Fresh environment setup and install:
+Fresh venv and install verification:
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+cmd /c "rmdir /s /q .venv"
+cmd /c 3DXFlat.bat
 ```
 
-Launch verification:
-- Executed `python main.py` from the fresh venv.
-- Verified startup without import errors.
-- App process was intentionally terminated after startup smoke-check to keep automation non-interactive.
-- Applied a small startup stability fix in `qt_app/viewport.py` (non-`None` mesh fallback color) to avoid OpenGL paint warnings on fresh launch.
+Observed behavior:
+- `.venv` was created successfully.
+- `pip`, `setuptools`, and `wheel` were upgraded.
+- `requirements.txt` dependencies installed successfully.
+- Qt launch was forced (no silent Tk fallback).
 
-Command used for automated smoke launch:
+Qt startup bug fixed during verification:
+- Initial forced-Qt launch exposed a runtime error: `name 'background' is not defined`.
+- Root cause: unescaped braces in f-string stylesheet blocks in `qt_app/viewport.py`.
+- Fix applied by escaping literal CSS braces in HUD/floating-orbit styles.
+
+Post-fix launch checks:
 ```powershell
+$env:THREEDXFLAT_FORCE_QT='1'
 .\.venv\Scripts\python.exe main.py
 ```
 
-## 5) New Repo Preparation Status
+Smoke result:
+- Qt/OpenGL app process started successfully (`FORCE_QT_STARTED_OK` check).
+- Batch launcher start path also validated (`BATCH_QT_RUNNING_CHILD_PYTHON` check).
 
-All local prerequisites in requested scope are complete:
-- hygiene
-- branding
-- legal notice cleanup
-- reproducible fresh-venv run validation
+## 5) Quick Test Commands (Verified)
+
+Exact reproducible commands:
+```powershell
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip setuptools wheel
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+$env:THREEDXFLAT_FORCE_QT = "1"
+.\.venv\Scripts\python.exe main.py
+```
+
+One-click Windows launcher:
+```powershell
+.\3DXFlat.bat
+```
+
+## Assumptions (Best-Effort)
+
+- Python 3.10+ is installed and available via `py -3` or `python`.
+- Network access is available for `pip install -r requirements.txt`.
+- Target PC has GPU/driver support for Qt OpenGL rendering.

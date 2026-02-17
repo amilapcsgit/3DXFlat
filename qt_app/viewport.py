@@ -423,12 +423,12 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.hud.setObjectName("ViewportHUD")
         self.hud.setStyleSheet(
             f"""
-            QWidget#ViewportHUD {
+            QWidget#ViewportHUD {{
                 background-color: rgba(31, 34, 39, 180);
                 border: 1px solid {tokens.BORDER};
                 border-radius: {tokens.RADIUS_1}px;
-            }
-            QToolButton {
+            }}
+            QToolButton {{
                 min-width:30px;
                 min-height:30px;
                 max-width:30px;
@@ -438,11 +438,11 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                 border:1px solid {tokens.BORDER};
                 border-radius:{tokens.RADIUS_1}px;
                 font-size:15px;
-            }
-            QToolButton:checked {
+            }}
+            QToolButton:checked {{
                 border-color:{tokens.ACCENT};
                 background-color:{tokens.BG_HOVER};
-            }
+            }}
             """
         )
         hud_layout = QVBoxLayout(self.hud)
@@ -491,20 +491,20 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.floating_orbit_btn.setFixedSize(36, 36)
         self.floating_orbit_btn.setStyleSheet(
             f"""
-            QToolButton#FloatingOrbitButton {
+            QToolButton#FloatingOrbitButton {{
                 color: {tokens.TEXT_PRIMARY};
                 font-size: 17px;
                 font-weight: 600;
                 border: none;
                 border-radius: 18px;
                 background-color: rgba(42, 47, 54, 150);
-            }
-            QToolButton#FloatingOrbitButton:hover {
+            }}
+            QToolButton#FloatingOrbitButton:hover {{
                 background-color: rgba(50, 56, 66, 185);
-            }
-            QToolButton#FloatingOrbitButton:pressed {
+            }}
+            QToolButton#FloatingOrbitButton:pressed {{
                 background-color: rgba(31, 34, 39, 210);
-            }
+            }}
             """
         )
         self.floating_orbit_btn.dragStarted.connect(self._on_floating_orbit_drag_started)

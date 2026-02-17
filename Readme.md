@@ -32,7 +32,15 @@ python -m pip install -r requirements.txt
 
 ## Run
 
-Default launcher:
+Windows launcher (recommended):
+
+```powershell
+.\3DXFlat.bat
+```
+
+This bootstrap launcher creates `.venv` (if missing), installs requirements, and starts the Qt/OpenGL UI.
+
+Default Python entrypoint:
 
 ```bash
 python main.py
@@ -54,9 +62,10 @@ python gui.py
 ## Quick Test (Fresh Venv)
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python main.py
+Remove-Item -Recurse -Force .venv -ErrorAction SilentlyContinue
+py -3 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip setuptools wheel
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+$env:THREEDXFLAT_FORCE_QT = "1"
+.\.venv\Scripts\python.exe main.py
 ```
