@@ -1,6 +1,6 @@
-# 3DXFlat (Qt + OpenGL)
+# 3DXFlat Advanced (Qt + OpenGL)
 
-3DXFlat is a CAD-oriented workflow for panel fabrication:
+3DXFlat Advanced is a CAD-oriented workflow for panel fabrication:
 import 3D geometry, inspect/select surfaces, flatten to 2D, and export production DXF.
 
 ## Current Scope

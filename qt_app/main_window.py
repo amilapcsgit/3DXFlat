@@ -703,7 +703,7 @@ class ThreeDXFlatMainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("3DXFlat (Qt)")
+        self.setWindowTitle("3DXFlat Advanced (Qt)")
         self.setMinimumSize(1100, 700)
         self._settings = QSettings(self.SETTINGS_ORG, self.SETTINGS_APP)
         self._seam_debounce = QTimer(self)
@@ -1271,7 +1271,12 @@ class ThreeDXFlatMainWindow(QMainWindow):
 
 
 def run_qt_app() -> int:
-    from PySide6.QtGui import QFont, QSurfaceFormat
+    from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap, QSurfaceFormat
+    from PySide6.QtWidgets import QSplashScreen
+    from ui.theme.apply_theme import apply_app_theme
+    from ui.theme import tokens
+
+    import ui.resources_rc  # noqa: F401
 
     fmt = QSurfaceFormat()
     fmt.setRenderableType(QSurfaceFormat.RenderableType.OpenGL)
@@ -1280,67 +1285,31 @@ def run_qt_app() -> int:
     QSurfaceFormat.setDefaultFormat(fmt)
 
     app = QApplication.instance() or QApplication(sys.argv)
+    apply_app_theme(app)
+    app.setFont(QFont(tokens.FONT_FAMILY, tokens.FONT_SIZE_BODY))
+    app.setWindowIcon(QIcon(":/brand/app_icon.ico"))
 
-    app.setFont(QFont("Segoe UI", 10))
-    app.setStyleSheet(
-        """
-        QMainWindow { background-color: #252525; color: #e0e0e0; }
-        QWidget { background-color: #252525; color: #e0e0e0; }
-        QToolBar { background: #252525; border: 1px solid #3a3a3a; spacing: 8px; }
-        QStatusBar { background-color: #252525; color: #888; font-size: 11px; }
-        QStatusBar QLabel { color: #a7b2c2; background: transparent; }
+    splash_pix = QPixmap(760, 360)
+    splash_pix.fill(QColor(tokens.BG_MAIN))
+    painter = QPainter(splash_pix)
+    painter.setPen(QColor(tokens.ACCENT))
+    painter.setFont(QFont(tokens.FONT_FAMILY, 28, QFont.Weight.Bold))
+    painter.drawText(220, 138, "3DXFlat Advanced")
+    painter.setPen(QColor(tokens.TEXT_SECONDARY))
+    painter.setFont(QFont(tokens.FONT_FAMILY, 14))
+    painter.drawText(220, 176, "Precision 3D-to-2D Surface Flattening")
+    logo_pix = QPixmap(":/brand/app_icon_256.png")
+    if not logo_pix.isNull():
+        painter.drawPixmap(54, 56, 136, 136, logo_pix)
+    painter.end()
 
-        QTabWidget::pane { border: 1px solid #333; top: -1px; background-color: #252525; }
-        QTabBar::tab {
-            background: #252525;
-            padding: 10px 20px;
-            border-top-left-radius: 4px;
-            border-top-right-radius: 4px;
-            margin-right: 2px;
-        }
-        QTabBar::tab:selected { background: #444; color: #00aaff; border-bottom: 2px solid #00aaff; }
-
-        QPushButton, QToolButton {
-            background-color: #252525;
-            border: 1px solid #555;
-            padding: 8px 15px;
-            border-radius: 4px;
-            min-width: 80px;
-        }
-        QPushButton:hover, QToolButton:hover { background-color: #252525; border: 1px solid #00aaff; }
-        QPushButton:disabled, QToolButton:disabled { background-color: #252525; color: #8f8f8f; border-color: #4a4a4a; }
-        QPushButton#FlattenButton, QToolButton#FlattenButton { background-color: #0066cc; font-weight: bold; font-size: 14px; }
-        QPushButton#FlattenButton:hover, QToolButton#FlattenButton:hover { background-color: #0078d7; }
-
-        QGroupBox {
-            font-weight: bold;
-            border: 1px solid #444;
-            margin-top: 10px;
-            padding-top: 15px;
-            border-radius: 4px;
-        }
-        QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 3px; color: #b9c6d7; }
-
-        QLineEdit, QComboBox, QSpinBox, QTextEdit, QListWidget {
-            background: #252525;
-            border: 1px solid #4b5665;
-            border-radius: 4px;
-            padding: 6px;
-        }
-        QProgressBar {
-            border: 1px solid #4c596d;
-            border-radius: 4px;
-            background: #252525;
-            color: #dce7f7;
-            text-align: center;
-            padding: 1px;
-        }
-        QProgressBar::chunk { background-color: #0078d7; border-radius: 3px; }
-        """
-    )
+    splash = QSplashScreen(splash_pix)
+    splash.show()
+    app.processEvents()
 
     from qt_app.ribbon_window import create_window
 
     win = create_window()
     win.show()
+    splash.finish(win)
     return app.exec()

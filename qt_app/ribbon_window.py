@@ -9,8 +9,8 @@ from typing import Dict, Iterable, List, Tuple
 import ezdxf
 import numpy as np
 import trimesh
-from PySide6.QtCore import QObject, QPoint, QSettings, Qt, QThread, QTimer, Signal, Slot
-from PySide6.QtGui import QColor, QPainterPath, QPen
+from PySide6.QtCore import QObject, QPoint, QSize, QSettings, Qt, QThread, QTimer, Signal, Slot
+from PySide6.QtGui import QAction, QColor, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -43,6 +43,8 @@ from nesting import build_nesting_layout, export_nesting_layout
 from qt_app.mesh_io import load_mesh_file
 from qt_app.viewcube import ViewCubeWidget
 from qt_app.viewport import ThreeDViewportWidget
+from ui.icon_loader import set_button_icon
+from ui.theme import tokens
 
 
 class Worker(QObject):
@@ -261,7 +263,7 @@ class CadGraphicsView(QGraphicsView):
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorViewCenter)
         self.setDragMode(QGraphicsView.DragMode.NoDrag)
-        self.setBackgroundBrush(QColor("#252525"))
+        self.setBackgroundBrush(QColor(tokens.BG_MAIN))
         self.setFrameShape(QGraphicsView.Shape.NoFrame)
         self._panning = False
         self._pan_start = None
@@ -309,7 +311,7 @@ class Flatten2DPreviewWidget(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(4)
         title = QLabel("2D Pattern Preview (CAD)", self)
-        title.setStyleSheet("font-size:14px; font-weight:600; color:#cfd7e3;")
+        title.setStyleSheet(f"font-size:{tokens.FONT_SIZE_RIBBON}px; font-weight:{tokens.FONT_WEIGHT_SEMIBOLD}; color:{tokens.TEXT_PRIMARY};")
         layout.addWidget(title)
 
         self.scene = QGraphicsScene(self)
@@ -317,14 +319,14 @@ class Flatten2DPreviewWidget(QWidget):
         layout.addWidget(self.view, 1)
 
         self.fold_item = QGraphicsPathItem()
-        self.fold_item.setPen(QPen(QColor("#7fc3ff"), 1.2))
+        self.fold_item.setPen(QPen(QColor(tokens.ACCENT), 1.2))
         self.scene.addItem(self.fold_item)
         self.cut_item = QGraphicsPathItem()
-        self.cut_item.setPen(QPen(QColor("#ff5f5f"), 1.2))
+        self.cut_item.setPen(QPen(QColor(tokens.ERROR), 1.2))
         self.scene.addItem(self.cut_item)
 
         self.info = QLabel("No flattened shape yet.", self)
-        self.info.setStyleSheet("color:#93a0b5;")
+        self.info.setStyleSheet(f"color:{tokens.TEXT_SECONDARY};")
         layout.addWidget(self.info)
 
     def _add_ring(self, path: QPainterPath, coords: Iterable[Tuple[float, float]]) -> None:
@@ -380,7 +382,7 @@ class RibbonMainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("3DXFlat (Qt)")
+        self.setWindowTitle("3DXFlat Advanced (Qt)")
         self.setMinimumSize(1100, 700)
         self._settings = QSettings(self.SETTINGS_ORG, self.SETTINGS_APP)
         self._seam_debounce = QTimer(self)
@@ -427,13 +429,13 @@ class RibbonMainWindow(QMainWindow):
         self.viewport_splitter.setHandleWidth(6)
         self.viewport_splitter.setContentsMargins(0, 0, 0, 0)
         self.viewport_splitter.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.viewport_splitter.setStyleSheet("QSplitter::handle { background-color: #353535; }")
+        self.viewport_splitter.setStyleSheet(f"QSplitter::handle {{ background-color: {tokens.BORDER}; }}")
 
         self.viewport = ThreeDViewportWidget(self.viewport_splitter)
         self.viewport.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.preview2d = Flatten2DPreviewWidget(self.viewport_splitter)
         self.preview2d.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.preview2d.setStyleSheet("background-color: #252525;")
+        self.preview2d.setStyleSheet(f"background-color: {tokens.BG_MAIN};")
         self.viewport_splitter.addWidget(self.viewport)
         self.viewport_splitter.addWidget(self.preview2d)
         self.viewport_splitter.setStretchFactor(0, 10)
@@ -466,26 +468,52 @@ class RibbonMainWindow(QMainWindow):
     def _build_top_toolbar(self) -> None:
         tb = QToolBar("Main Actions", self)
         tb.setMovable(False)
+        tb.setIconSize(QSize(24, 24))
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, tb)
+
         self.import_btn = QToolButton(self)
         self.import_btn.setText("Import 3D")
         self.import_btn.clicked.connect(self.import_3d_dialog)
+        set_button_icon(self.import_btn, "import_model")
         tb.addWidget(self.import_btn)
+
         spacer = QWidget(self)
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         tb.addWidget(spacer)
+
         self.run_flatten_btn_top = QToolButton(self)
         self.run_flatten_btn_top.setText("Run Flatten")
         self.run_flatten_btn_top.setObjectName("FlattenButton")
         self.run_flatten_btn_top.clicked.connect(self.run_flatten)
+        set_button_icon(self.run_flatten_btn_top, "flatten")
         tb.addWidget(self.run_flatten_btn_top)
+
         spacer2 = QWidget(self)
         spacer2.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         tb.addWidget(spacer2)
+
         self.export_btn_top = QToolButton(self)
         self.export_btn_top.setText("Export DXF")
         self.export_btn_top.clicked.connect(self.export_dxf)
+        set_button_icon(self.export_btn_top, "export_dxf")
         tb.addWidget(self.export_btn_top)
+
+        self.settings_btn_top = QToolButton(self)
+        self.settings_btn_top.setText("Settings")
+        self.settings_btn_top.clicked.connect(self._show_settings_placeholder)
+        set_button_icon(self.settings_btn_top, "settings")
+        tb.addWidget(self.settings_btn_top)
+
+        self.about_btn_top = QToolButton(self)
+        self.about_btn_top.setText("About")
+        self.about_btn_top.clicked.connect(self._show_about_dialog)
+        set_button_icon(self.about_btn_top, "about")
+        tb.addWidget(self.about_btn_top)
+
+        help_menu = self.menuBar().addMenu("Help")
+        about_action = QAction("About 3DXFlat Advanced", self)
+        about_action.triggered.connect(self._show_about_dialog)
+        help_menu.addAction(about_action)
 
     def _build_ribbon(self) -> QTabWidget:
         tabs = QTabWidget(self)
@@ -501,13 +529,17 @@ class RibbonMainWindow(QMainWindow):
         import_layout.setSpacing(8)
         self.setup_import_btn = QPushButton("Import Model", setup_tab)
         self.setup_import_btn.clicked.connect(self.import_3d_dialog)
+        set_button_icon(self.setup_import_btn, "import_model")
         self.check_scale_btn = QPushButton("Check Scale", setup_tab)
         self.check_scale_btn.clicked.connect(self.check_scale)
+        set_button_icon(self.check_scale_btn, "frame_selection")
         self.reset_camera_btn = QPushButton("Reset Camera", setup_tab)
         self.reset_camera_btn.clicked.connect(self.viewport.reset_camera)
+        set_button_icon(self.reset_camera_btn, "frame_selection")
         self.toggle_2d_btn = QPushButton("Show 2D Preview", setup_tab)
         self.toggle_2d_btn.setCheckable(True)
         self.toggle_2d_btn.toggled.connect(self.toggle_2d_preview)
+        set_button_icon(self.toggle_2d_btn, "surface_select")
         import_layout.addWidget(self.setup_import_btn)
         import_layout.addWidget(self.check_scale_btn)
         import_layout.addWidget(self.reset_camera_btn)
@@ -543,6 +575,11 @@ class RibbonMainWindow(QMainWindow):
         self.single_pick_btn.setCheckable(True)
         self.clear_selection_btn = QPushButton("Clear Selection", flatten_tab)
         self.clear_selection_btn.clicked.connect(self.viewport.clear_selection)
+        self.invert_selection_btn = QPushButton("Invert", flatten_tab)
+        self.invert_selection_btn.clicked.connect(self.viewport.invert_selection)
+        self.isolate_btn = QPushButton("Isolate", flatten_tab)
+        self.isolate_btn.setCheckable(True)
+        self.isolate_btn.toggled.connect(self._on_isolate_toggled)
         self.selection_mode_group = QButtonGroup(self)
         self.selection_mode_group.setExclusive(True)
         self.selection_mode_group.addButton(self.smart_select_btn)
@@ -552,11 +589,30 @@ class RibbonMainWindow(QMainWindow):
         self.method_combo = QComboBox(flatten_tab)
         self.method_combo.addItems(["ARAP", "LSCM"])
         self.method_combo.setCurrentText("ARAP")
+        self.technical_mode_btn = QPushButton("Technical Mode", flatten_tab)
+        self.technical_mode_btn.setCheckable(True)
+        self.technical_mode_btn.toggled.connect(self.viewport.set_technical_mode)
+        self.show_edges_btn = QPushButton("Show Edges", flatten_tab)
+        self.show_edges_btn.setCheckable(True)
+        self.show_edges_btn.setChecked(True)
+        self.show_edges_btn.toggled.connect(self.viewport.set_edges_visible)
+        self.wireframe_btn = QPushButton("Wireframe", flatten_tab)
+        self.wireframe_btn.setCheckable(True)
+        self.wireframe_btn.toggled.connect(self.viewport.set_wireframe_mode)
         self.selected_label = QLabel("Selected Faces: 0", flatten_tab)
         self.run_flatten_btn = QPushButton("RUN FLATTEN", flatten_tab)
         self.run_flatten_btn.setObjectName("FlattenButton")
         self.run_flatten_btn.setMinimumHeight(42)
         self.run_flatten_btn.clicked.connect(self.run_flatten)
+        set_button_icon(self.smart_select_btn, "surface_select")
+        set_button_icon(self.single_pick_btn, "pin_vertex")
+        set_button_icon(self.clear_selection_btn, "clear_selection")
+        set_button_icon(self.invert_selection_btn, "invert_selection")
+        set_button_icon(self.isolate_btn, "isolate")
+        set_button_icon(self.technical_mode_btn, "strain_map")
+        set_button_icon(self.show_edges_btn, "show_edges")
+        set_button_icon(self.wireframe_btn, "wireframe")
+        set_button_icon(self.run_flatten_btn, "flatten")
         self.quality_gauge = QProgressBar(flatten_tab)
         self.quality_gauge.setRange(0, 100)
         self.quality_gauge.setValue(0)
@@ -564,8 +620,13 @@ class RibbonMainWindow(QMainWindow):
         flatten_layout.addWidget(self.smart_select_btn)
         flatten_layout.addWidget(self.single_pick_btn)
         flatten_layout.addWidget(self.clear_selection_btn)
+        flatten_layout.addWidget(self.invert_selection_btn)
+        flatten_layout.addWidget(self.isolate_btn)
         flatten_layout.addWidget(QLabel("Method:", flatten_tab))
         flatten_layout.addWidget(self.method_combo)
+        flatten_layout.addWidget(self.technical_mode_btn)
+        flatten_layout.addWidget(self.show_edges_btn)
+        flatten_layout.addWidget(self.wireframe_btn)
         flatten_layout.addWidget(self.selected_label)
         flatten_layout.addWidget(self.run_flatten_btn)
         flatten_layout.addWidget(self.quality_gauge, 1)
@@ -582,8 +643,10 @@ class RibbonMainWindow(QMainWindow):
         self.seam_slider.valueChanged.connect(self._on_seam_slider_changed)
         self.nest_btn = QPushButton("Nest on Roll", production_tab)
         self.nest_btn.clicked.connect(self.run_nesting_job)
+        set_button_icon(self.nest_btn, "nest")
         self.export_btn = QPushButton("Export DXF", production_tab)
         self.export_btn.clicked.connect(self.export_dxf)
+        set_button_icon(self.export_btn, "export_dxf")
         self.export_path_label = QLabel(self.last_export_path or "(last path not set)", production_tab)
         self.export_path_label.setWordWrap(True)
         production_layout.addWidget(self.seam_label)
@@ -592,6 +655,25 @@ class RibbonMainWindow(QMainWindow):
         production_layout.addWidget(self.export_btn)
         production_layout.addWidget(self.export_path_label, 1)
         tabs.addTab(production_tab, "PRODUCTION")
+
+        for btn in (
+            self.setup_import_btn,
+            self.check_scale_btn,
+            self.reset_camera_btn,
+            self.toggle_2d_btn,
+            self.smart_select_btn,
+            self.single_pick_btn,
+            self.clear_selection_btn,
+            self.invert_selection_btn,
+            self.isolate_btn,
+            self.technical_mode_btn,
+            self.show_edges_btn,
+            self.wireframe_btn,
+            self.nest_btn,
+            self.export_btn,
+        ):
+            btn.setMinimumHeight(36)
+
         return tabs
 
     def _build_status_progress(self) -> None:
@@ -654,6 +736,10 @@ class RibbonMainWindow(QMainWindow):
     def _on_faces_selected(self, faces: List[int]) -> None:
         self.selected_label.setText(f"Selected Faces: {len(faces)}")
         self.log(f"INFO | Surface selection updated: {len(faces)} face(s)")
+        if hasattr(self, "isolate_btn") and not faces and self.isolate_btn.isChecked():
+            self.isolate_btn.blockSignals(True)
+            self.isolate_btn.setChecked(False)
+            self.isolate_btn.blockSignals(False)
 
     def _apply_selection_mode(self) -> None:
         if self.smart_select_btn.isChecked():
@@ -662,6 +748,13 @@ class RibbonMainWindow(QMainWindow):
             self.viewport.set_selection_mode("single")
         else:
             self.viewport.set_selection_mode("off")
+
+    def _on_isolate_toggled(self, checked: bool) -> None:
+        self.viewport.set_isolate_mode(checked)
+        if checked and not self.viewport.is_isolate_mode():
+            self.isolate_btn.blockSignals(True)
+            self.isolate_btn.setChecked(False)
+            self.isolate_btn.blockSignals(False)
 
     def _set_busy(self, busy: bool, message: str = "") -> None:
         self._busy = bool(busy)
@@ -690,10 +783,17 @@ class RibbonMainWindow(QMainWindow):
         self.run_flatten_btn_top.setEnabled(enable)
         self.export_btn.setEnabled(enable and self.flatten_completed)
         self.export_btn_top.setEnabled(enable and self.flatten_completed)
+        self.settings_btn_top.setEnabled(enable)
+        self.about_btn_top.setEnabled(enable)
         self.nest_btn.setEnabled(enable and self.flatten_completed)
         self.smart_select_btn.setEnabled(enable)
         self.single_pick_btn.setEnabled(enable)
         self.clear_selection_btn.setEnabled(enable)
+        self.invert_selection_btn.setEnabled(enable)
+        self.isolate_btn.setEnabled(enable)
+        self.technical_mode_btn.setEnabled(enable)
+        self.show_edges_btn.setEnabled(enable)
+        self.wireframe_btn.setEnabled(enable)
         self.toggle_2d_btn.setEnabled(enable)
 
     def _update_progress(self, value: int) -> None:
@@ -782,6 +882,54 @@ class RibbonMainWindow(QMainWindow):
         txt = f"LxWxH: {lx:.1f} x {ly:.1f} x {lz:.1f} mm"
         self.scale_label.setText(f"Scale: {txt}")
         self.log(f"INFO | {txt}")
+
+    def _show_about_dialog(self) -> None:
+        vendor = "Unavailable"
+        renderer = "Unavailable"
+        version = "Unavailable"
+        try:
+            from OpenGL import GL as ogl
+
+            self.viewport.makeCurrent()
+            raw_vendor = ogl.glGetString(ogl.GL_VENDOR)
+            raw_renderer = ogl.glGetString(ogl.GL_RENDERER)
+            raw_version = ogl.glGetString(ogl.GL_VERSION)
+            vendor = raw_vendor.decode("utf-8", errors="replace") if raw_vendor else "Unavailable"
+            renderer = raw_renderer.decode("utf-8", errors="replace") if raw_renderer else "Unavailable"
+            version = raw_version.decode("utf-8", errors="replace") if raw_version else "Unavailable"
+        except Exception:
+            pass
+        finally:
+            try:
+                self.viewport.doneCurrent()
+            except Exception:
+                pass
+
+        box = QMessageBox(self)
+        box.setWindowTitle("About 3DXFlat Advanced")
+        box.setTextFormat(Qt.TextFormat.RichText)
+        box.setText(
+            "<b>3DXFlat Advanced</b><br/>"
+            "Version: 0.1.0<br/>"
+            "Build: UI-2026.02.17<br/>"
+            "Tagline: Precision 3D-to-2D Surface Flattening<br/>"
+            "<br/>"
+            f"OpenGL Vendor: {vendor}<br/>"
+            f"OpenGL Renderer: {renderer}<br/>"
+            f"OpenGL Version: {version}<br/>"
+            "<br/>"
+            "Website: https://github.com/amilapcsgit/3DXFlat<br/>"
+            "Docs: https://github.com/amilapcsgit/3DXFlat#readme<br/>"
+            "License Tier: Advanced (placeholder)"
+        )
+        box.exec()
+
+    def _show_settings_placeholder(self) -> None:
+        QMessageBox.information(
+            self,
+            "Settings",
+            "UI settings panel is planned for a later iteration.",
+        )
 
     def import_3d_dialog(self) -> None:
         if self._busy:

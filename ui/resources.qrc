@@ -1,0 +1,25 @@
+<!DOCTYPE RCC><RCC version="1.0">
+  <qresource prefix="/">
+    <file alias="icons/svg/import_model.svg">assets/icons/svg/import_model.svg</file>
+    <file alias="icons/svg/surface_select.svg">assets/icons/svg/surface_select.svg</file>
+    <file alias="icons/svg/isolate.svg">assets/icons/svg/isolate.svg</file>
+    <file alias="icons/svg/clear_selection.svg">assets/icons/svg/clear_selection.svg</file>
+    <file alias="icons/svg/invert_selection.svg">assets/icons/svg/invert_selection.svg</file>
+    <file alias="icons/svg/flatten.svg">assets/icons/svg/flatten.svg</file>
+    <file alias="icons/svg/pin_vertex.svg">assets/icons/svg/pin_vertex.svg</file>
+    <file alias="icons/svg/strain_map.svg">assets/icons/svg/strain_map.svg</file>
+    <file alias="icons/svg/export_dxf.svg">assets/icons/svg/export_dxf.svg</file>
+    <file alias="icons/svg/nest.svg">assets/icons/svg/nest.svg</file>
+    <file alias="icons/svg/wireframe.svg">assets/icons/svg/wireframe.svg</file>
+    <file alias="icons/svg/show_edges.svg">assets/icons/svg/show_edges.svg</file>
+    <file alias="icons/svg/frame_selection.svg">assets/icons/svg/frame_selection.svg</file>
+    <file alias="icons/svg/settings.svg">assets/icons/svg/settings.svg</file>
+    <file alias="icons/svg/about.svg">assets/icons/svg/about.svg</file>
+
+    <file alias="brand/logo.svg">assets/brand/logo.svg</file>
+    <file alias="brand/logo_mark.svg">assets/brand/logo_mark.svg</file>
+    <file alias="brand/wordmark.svg">assets/brand/wordmark.svg</file>
+    <file alias="brand/app_icon.ico">assets/brand/app_icon.ico</file>
+    <file alias="brand/app_icon_256.png">assets/brand/app_icon_256.png</file>
+  </qresource>
+</RCC>

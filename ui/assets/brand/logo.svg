@@ -1,0 +1,14 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" width="980" height="180" viewBox="0 0 980 180" fill="none">
+  <rect width="980" height="180" rx="20" fill="#1F2227"/>
+  <g transform="translate(24,30)" stroke="#00AEEF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M36 92 68 20 114 90 70 110z"/>
+    <path d="M68 20 148 32 114 90"/>
+    <path d="M148 32 178 60 152 104 70 110"/>
+    <circle cx="36" cy="92" r="3" fill="#00AEEF"/>
+    <circle cx="68" cy="20" r="3" fill="#00AEEF"/>
+    <circle cx="114" cy="90" r="3" fill="#00AEEF"/>
+    <circle cx="178" cy="60" r="3" fill="#00AEEF"/>
+  </g>
+  <text x="250" y="100" fill="#E5E9F0" font-family="Segoe UI, Inter, Arial" font-size="64" font-weight="700">3DXFlat Advanced</text>
+  <text x="252" y="132" fill="#9AA4B2" font-family="Segoe UI, Inter, Arial" font-size="24">Precision 3D-to-2D Surface Flattening</text>
+</svg>
