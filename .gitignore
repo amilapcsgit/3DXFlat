@@ -1,0 +1,85 @@
+# ==============================
+# Python
+# ==============================
+__pycache__/
+flatten_surface/__pycache__/
+*.py[cod]
+*.pyc
+*$py.class
+*.pyo
+*.pyd
+*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Distribution / packaging
+build/
+dist/
+*.spec
+*.manifest
+*.exe
+*.dll
+*.msi
+*.zip
+*.whl
+.nuitka/
+.pyinstaller/
+
+# Logs
+logs/
+*.log
+
+# Testing / cache
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# VS Code
+.vscode/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.VC.db
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.bak
+*.old
+*.orig
+
+# IDE project artifacts
+.idea/
+
+# Node (in case later used)
+node_modules/
+
+# Qt generated
+*.qmlc
+*.jsc
+
+# C/C++ build leftovers (if ever added)
+*.obj
+*.o
+*.lib
+*.exp
+*.pdb
+
+# Installer tools
+*.iss
+*.wixobj
+*.wixpdb
+
+# Future license bundle folder (generated at build time)
+licenses/
