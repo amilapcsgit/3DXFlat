@@ -151,13 +151,13 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.overlay = QLabel("Drop 3D Model Here\n(STL / OBJ / STEP)", self)
         self.overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.overlay.setStyleSheet(
-            "QLabel { color:#8fa0b7; font-size:24px; font-weight:600; background:transparent; }"
+            f"QLabel {{ color:{tokens.TEXT_SECONDARY}; font-size:24px; font-weight:{tokens.FONT_WEIGHT_SEMIBOLD}; background:transparent; }}"
         )
         self.overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
         self.dim_label = QLabel("", self)
         self.dim_label.setStyleSheet(
-            "QLabel { color:#d5deec; background-color:rgba(20,22,28,170); border:1px solid #3a4250; padding:4px 8px; }"
+            f"QLabel {{ color:{tokens.TEXT_PRIMARY}; background-color:rgba(31,34,39,170); border:1px solid {tokens.BORDER}; padding:4px 8px; }}"
         )
         self.dim_label.move(14, 14)
         self.dim_label.setMinimumSize(220, 28)
