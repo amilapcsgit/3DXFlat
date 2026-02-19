@@ -1,170 +1,50 @@
 from __future__ import annotations
 
-from PySide6.QtGui import QFont
+from pathlib import Path
+
+from PySide6.QtGui import QColor, QFont, QPalette
 from PySide6.QtWidgets import QApplication, QStyleFactory
 
 from ui.theme import tokens
 
 
+def _build_palette() -> QPalette:
+    pal = QPalette()
+    bg_main = QColor(tokens.BG_MAIN)
+    bg_panel = QColor(tokens.BG_PANEL)
+    text_primary = QColor(tokens.TEXT_PRIMARY)
+    text_secondary = QColor(tokens.TEXT_SECONDARY)
+    accent = QColor(tokens.ACCENT)
+
+    pal.setColor(QPalette.ColorRole.Window, bg_main)
+    pal.setColor(QPalette.ColorRole.WindowText, text_primary)
+    pal.setColor(QPalette.ColorRole.Base, bg_panel)
+    pal.setColor(QPalette.ColorRole.AlternateBase, bg_main)
+    pal.setColor(QPalette.ColorRole.ToolTipBase, bg_panel)
+    pal.setColor(QPalette.ColorRole.ToolTipText, text_primary)
+    pal.setColor(QPalette.ColorRole.Text, text_primary)
+    pal.setColor(QPalette.ColorRole.Button, bg_panel)
+    pal.setColor(QPalette.ColorRole.ButtonText, text_primary)
+    pal.setColor(QPalette.ColorRole.BrightText, QColor(tokens.ERROR))
+    pal.setColor(QPalette.ColorRole.Link, accent)
+    pal.setColor(QPalette.ColorRole.Highlight, accent)
+    pal.setColor(QPalette.ColorRole.HighlightedText, QColor(tokens.BG_MAIN))
+    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text, QColor(tokens.TEXT_DISABLED))
+    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor(tokens.TEXT_DISABLED))
+    pal.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, text_secondary)
+    return pal
+
+
 def _build_stylesheet() -> str:
-    return f"""
-    QMainWindow, QWidget {{
-        background-color: {tokens.BG_MAIN};
-        color: {tokens.TEXT_PRIMARY};
-        font-size: {tokens.FONT_SIZE_BODY}px;
-    }}
-
-    QDockWidget {{
-        background-color: {tokens.BG_MAIN};
-        color: {tokens.TEXT_PRIMARY};
-        border: 1px solid {tokens.BORDER};
-    }}
-
-    QMenuBar {{
-        background-color: {tokens.BG_MAIN};
-        color: {tokens.TEXT_PRIMARY};
-        border-bottom: 1px solid {tokens.BORDER};
-    }}
-    QMenuBar::item {{
-        spacing: {tokens.SPACE_2}px;
-        padding: {tokens.SPACE_2}px {tokens.SPACE_3}px;
-        border-radius: {tokens.RADIUS_1}px;
-    }}
-    QMenuBar::item:selected {{
-        background: {tokens.BG_HOVER};
-    }}
-
-    QMenu {{
-        background-color: {tokens.BG_PANEL};
-        color: {tokens.TEXT_PRIMARY};
-        border: 1px solid {tokens.BORDER};
-        padding: {tokens.SPACE_1}px;
-    }}
-    QMenu::item {{
-        padding: {tokens.SPACE_2}px {tokens.SPACE_3}px;
-        border-radius: {tokens.RADIUS_1}px;
-    }}
-    QMenu::item:selected {{
-        background-color: {tokens.BG_HOVER};
-    }}
-
-    QToolBar {{
-        background: {tokens.BG_PANEL};
-        border: 1px solid {tokens.BORDER};
-        spacing: {tokens.SPACE_2}px;
-        padding: {tokens.SPACE_1}px;
-    }}
-
-    QTabWidget::pane {{
-        border: 1px solid {tokens.BORDER};
-        background-color: {tokens.BG_MAIN};
-    }}
-    QTabBar::tab {{
-        background: {tokens.BG_PANEL};
-        color: {tokens.TEXT_PRIMARY};
-        border: 1px solid {tokens.BORDER};
-        border-bottom: none;
-        border-top-left-radius: {tokens.RADIUS_1}px;
-        border-top-right-radius: {tokens.RADIUS_1}px;
-        padding: {tokens.SPACE_2}px {tokens.SPACE_4}px;
-        min-height: 24px;
-    }}
-    QTabBar::tab:selected {{
-        background: {tokens.BG_HOVER};
-        color: {tokens.ACCENT};
-    }}
-
-    QPushButton, QToolButton {{
-        background-color: {tokens.BG_PANEL};
-        color: {tokens.TEXT_PRIMARY};
-        border: 1px solid {tokens.BORDER};
-        border-radius: {tokens.RADIUS_1}px;
-        padding: {tokens.SPACE_2}px {tokens.SPACE_3}px;
-    }}
-    QPushButton:hover, QToolButton:hover {{
-        background-color: {tokens.BG_HOVER};
-        border-color: {tokens.ACCENT};
-    }}
-    QPushButton:pressed, QToolButton:pressed {{
-        background-color: {tokens.BG_HOVER};
-    }}
-    QPushButton:checked, QToolButton:checked {{
-        border-color: {tokens.ACCENT};
-    }}
-    QPushButton:disabled, QToolButton:disabled {{
-        color: {tokens.TEXT_DISABLED};
-        border-color: {tokens.BORDER};
-    }}
-    QPushButton#FlattenButton, QToolButton#FlattenButton {{
-        border-color: {tokens.ACCENT};
-        color: {tokens.ACCENT};
-        font-size: {tokens.FONT_SIZE_RIBBON}px;
-        font-weight: {tokens.FONT_WEIGHT_SEMIBOLD};
-    }}
-
-    QLabel {{
-        color: {tokens.TEXT_PRIMARY};
-    }}
-
-    QGroupBox {{
-        font-weight: {tokens.FONT_WEIGHT_SEMIBOLD};
-        border: 1px solid {tokens.BORDER};
-        border-radius: {tokens.RADIUS_1}px;
-        margin-top: {tokens.SPACE_3}px;
-        padding-top: {tokens.SPACE_3}px;
-    }}
-    QGroupBox::title {{
-        subcontrol-origin: margin;
-        left: {tokens.SPACE_2}px;
-        color: {tokens.TEXT_SECONDARY};
-        padding: 0 {tokens.SPACE_1}px;
-    }}
-
-    QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox, QTextEdit, QListWidget {{
-        background: {tokens.BG_PANEL};
-        color: {tokens.TEXT_PRIMARY};
-        border: 1px solid {tokens.BORDER};
-        border-radius: {tokens.RADIUS_1}px;
-        padding: {tokens.SPACE_2}px;
-    }}
-    QComboBox QAbstractItemView {{
-        background: {tokens.BG_PANEL};
-        color: {tokens.TEXT_PRIMARY};
-        border: 1px solid {tokens.BORDER};
-        selection-background-color: {tokens.BG_HOVER};
-        selection-color: {tokens.TEXT_PRIMARY};
-    }}
-
-    QCheckBox, QRadioButton {{
-        color: {tokens.TEXT_PRIMARY};
-        spacing: {tokens.SPACE_2}px;
-    }}
-
-    QStatusBar {{
-        background-color: {tokens.BG_PANEL};
-        color: {tokens.TEXT_SECONDARY};
-        border-top: 1px solid {tokens.BORDER};
-    }}
-    QStatusBar QLabel {{
-        color: {tokens.TEXT_SECONDARY};
-        background: transparent;
-    }}
-
-    QProgressBar {{
-        border: 1px solid {tokens.BORDER};
-        border-radius: {tokens.RADIUS_1}px;
-        background: {tokens.BG_PANEL};
-        color: {tokens.TEXT_PRIMARY};
-        text-align: center;
-    }}
-    QProgressBar::chunk {{
-        background-color: {tokens.ACCENT};
-        border-radius: {tokens.RADIUS_1}px;
-    }}
-    """
+    qss_path = Path(__file__).with_name("industrial_cad.qss")
+    template = qss_path.read_text(encoding="utf-8")
+    for key, value in tokens.qss_vars().items():
+        template = template.replace(f"{{{key}}}", value)
+    return template
 
 
 def apply_app_theme(app: QApplication) -> None:
     app.setStyle(QStyleFactory.create("Fusion"))
     app.setFont(QFont(tokens.FONT_FAMILY, tokens.FONT_SIZE_BODY))
+    app.setPalette(_build_palette())
     app.setStyleSheet(_build_stylesheet())

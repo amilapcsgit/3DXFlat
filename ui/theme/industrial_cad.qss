@@ -1,0 +1,151 @@
+QMainWindow {
+    background: {BG_MAIN};
+}
+
+QWidget {
+    color: {TEXT_PRIMARY};
+    font-size: 13px;
+}
+
+QToolBar#PrimaryRibbon {
+    min-height: {PRIMARY_RIBBON_HEIGHT}px;
+    max-height: {PRIMARY_RIBBON_HEIGHT}px;
+    padding: 0px {SPACE_L}px;
+    spacing: {SPACE_S}px;
+    background: {BG_MAIN};
+    border: none;
+}
+
+QMenuBar {
+    background: {BG_MAIN};
+    border-bottom: 1px solid {BORDER};
+}
+
+QMenu {
+    background: {BG_PANEL};
+    border: 1px solid {BORDER};
+}
+
+QTabWidget#SecondaryRibbon {
+    background: {BG_MAIN};
+    border-top: 1px solid {BORDER};
+    border-bottom: 1px solid {BORDER};
+}
+
+QTabWidget#SecondaryRibbon::pane {
+    border: none;
+    margin-top: 0px;
+}
+
+QTabBar::tab {
+    min-height: {TABS_HEIGHT}px;
+    max-height: {TABS_HEIGHT}px;
+    min-width: 96px;
+    padding: 0px {SPACE_M}px;
+    background: {BG_MAIN};
+    border: none;
+    color: {TEXT_SECONDARY};
+    font-size: 12px;
+    font-weight: 600;
+}
+
+QTabBar::tab:selected {
+    color: {TEXT_PRIMARY};
+    border-bottom: 2px solid {ACCENT};
+}
+
+QPushButton, QToolButton {
+    min-height: {TOOL_BUTTON_HEIGHT}px;
+    max-height: {TOOL_BUTTON_HEIGHT}px;
+    padding: 0px {SPACE_M}px;
+    background: {BG_PANEL};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_BUTTON}px;
+    color: {TEXT_PRIMARY};
+    font-size: 12px;
+    font-weight: 500;
+}
+
+QPushButton:hover, QToolButton:hover {
+    background: {BG_HOVER};
+}
+
+QPushButton:checked, QToolButton:checked {
+    border-color: {ACCENT};
+    background: {BG_HOVER};
+}
+
+QPushButton:disabled, QToolButton:disabled {
+    color: {TEXT_DISABLED};
+    border-color: {BORDER};
+}
+
+QPushButton#primaryAction, QToolButton#primaryAction {
+    background: {ACCENT};
+    border: none;
+    color: {ON_ACCENT};
+    font-size: 12px;
+    font-weight: 600;
+}
+
+QPushButton#primaryAction:hover, QToolButton#primaryAction:hover {
+    background: {ACCENT};
+}
+
+QGroupBox {
+    background: transparent;
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_PANEL}px;
+    margin-top: {SPACE_M}px;
+    padding-top: {SPACE_M}px;
+}
+
+QGroupBox::title {
+    color: {TEXT_SECONDARY};
+    left: {SPACE_S}px;
+    padding: 0px {SPACE_XS}px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox {
+    min-height: {TOOL_BUTTON_HEIGHT}px;
+    padding: 0px {SPACE_S}px;
+    background: {BG_PANEL};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_BUTTON}px;
+}
+
+QStatusBar {
+    min-height: {STATUS_BAR_HEIGHT}px;
+    max-height: {STATUS_BAR_HEIGHT}px;
+    background: {BG_MAIN};
+    border-top: 1px solid {BORDER};
+    color: {TEXT_SECONDARY};
+}
+
+QStatusBar QLabel {
+    color: {TEXT_SECONDARY};
+}
+
+QProgressBar {
+    min-height: 24px;
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_BUTTON}px;
+    background: {BG_PANEL};
+}
+
+QProgressBar::chunk {
+    background: {ACCENT};
+}
+
+QFrame#Preview2DHeader {
+    min-height: {PANEL_HEADER_HEIGHT}px;
+    max-height: {PANEL_HEADER_HEIGHT}px;
+    background: {BG_PANEL};
+    border-bottom: 1px solid {BORDER};
+}
+
+QWidget#Preview2DPanel {
+    background: {P2D_BG};
+}

@@ -2,6 +2,19 @@ import os
 import sys
 
 
+def _set_windows_app_user_model_id() -> None:
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        app_id = "3DXFlat.Advanced.Desktop"
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+    except Exception:
+        # Best-effort branding; failures should not block startup.
+        pass
+
+
 def run_tk_fallback() -> None:
     from gui import FlattenApp
 
@@ -34,4 +47,5 @@ def run_default_app() -> int:
 
 
 if __name__ == "__main__":
+    _set_windows_app_user_model_id()
     raise SystemExit(run_default_app())

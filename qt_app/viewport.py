@@ -7,11 +7,22 @@ from typing import Dict, List, Set, Tuple
 import numpy as np
 from OpenGL import GL as ogl
 import pyqtgraph.opengl as gl
-from PySide6.QtCore import QPoint, QPointF, QTimer, Qt, Signal
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QQuaternion, QVector3D, QVector4D
-from PySide6.QtWidgets import QLabel, QMenu, QSizePolicy, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QTimer, QVariantAnimation, Qt, Signal
+from PySide6.QtGui import QColor, QLinearGradient, QPainter, QQuaternion, QVector3D, QVector4D, QRegion
+from PySide6.QtWidgets import QGraphicsOpacityEffect, QLabel, QMenu, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 import trimesh
+from ui.icon_loader import set_button_icon
 from ui.theme import tokens
+
+
+def _rgb255(color_hex: str) -> Tuple[int, int, int]:
+    return tokens.hex_to_rgb255(color_hex)
+
+
+def _rgba255(color_hex: str, alpha: float) -> Tuple[int, int, int, int]:
+    r, g, b = _rgb255(color_hex)
+    a = max(0, min(255, int(round(alpha * 255.0))))
+    return (r, g, b, a)
 
 
 class OrbitDragButton(QToolButton):
@@ -23,10 +34,45 @@ class OrbitDragButton(QToolButton):
         super().__init__(parent)
         self._dragging = False
         self.setMouseTracking(True)
+        self.setCursor(Qt.CursorShape.SizeAllCursor)
+        self._opacity_fx = QGraphicsOpacityEffect(self)
+        self._opacity_fx.setOpacity(0.3)
+        self.setGraphicsEffect(self._opacity_fx)
+        self._opacity_anim = QVariantAnimation(self)
+        self._opacity_anim.setDuration(140)
+        self._opacity_anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        self._opacity_anim.valueChanged.connect(self._on_opacity_step)
+
+    def _on_opacity_step(self, value) -> None:
+        self._opacity_fx.setOpacity(float(value))
+
+    def _animate_opacity(self, target: float) -> None:
+        end = max(0.0, min(1.0, float(target)))
+        self._opacity_anim.stop()
+        self._opacity_anim.setStartValue(float(self._opacity_fx.opacity()))
+        self._opacity_anim.setEndValue(end)
+        self._opacity_anim.start()
+
+    def enterEvent(self, event) -> None:  # noqa: N802
+        self._animate_opacity(1.0)
+        self.setCursor(Qt.CursorShape.SizeAllCursor)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        if not self._dragging:
+            self._animate_opacity(0.3)
+        super().leaveEvent(event)
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        side = min(self.width(), self.height())
+        region = QRegion(0, 0, side, side, QRegion.RegionType.Ellipse)
+        self.setMask(region)
+        super().resizeEvent(event)
 
     def mousePressEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton:
             self._dragging = True
+            self._animate_opacity(1.0)
             self.dragStarted.emit(event.globalPosition())
             event.accept()
             return
@@ -43,9 +89,53 @@ class OrbitDragButton(QToolButton):
         if event.button() == Qt.MouseButton.LeftButton and self._dragging:
             self._dragging = False
             self.dragFinished.emit()
+            self._animate_opacity(1.0 if self.underMouse() else 0.3)
             event.accept()
             return
         super().mouseReleaseEvent(event)
+
+
+class _CadMeshItem(gl.GLMeshItem):
+    def __init__(
+        self,
+        *args,
+        polygon_offset_fill: bool = False,
+        polygon_offset_line: bool = False,
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+        self._polygon_offset_fill = bool(polygon_offset_fill)
+        self._polygon_offset_line = bool(polygon_offset_line)
+
+    def paint(self) -> None:
+        fill_offset_enabled = False
+        line_offset_enabled = False
+        try:
+            ogl.glDisable(ogl.GL_LIGHTING)
+            ogl.glDisable(ogl.GL_COLOR_MATERIAL)
+        except Exception:
+            pass
+        try:
+            if self._polygon_offset_fill:
+                ogl.glEnable(ogl.GL_POLYGON_OFFSET_FILL)
+                ogl.glPolygonOffset(1.0, 1.0)
+                fill_offset_enabled = True
+            if self._polygon_offset_line:
+                ogl.glEnable(ogl.GL_POLYGON_OFFSET_LINE)
+                ogl.glPolygonOffset(-1.0, -1.0)
+                line_offset_enabled = True
+        except Exception:
+            pass
+        try:
+            super().paint()
+        finally:
+            try:
+                if line_offset_enabled:
+                    ogl.glDisable(ogl.GL_POLYGON_OFFSET_LINE)
+                if fill_offset_enabled:
+                    ogl.glDisable(ogl.GL_POLYGON_OFFSET_FILL)
+            except Exception:
+                pass
 
 
 class ThreeDViewportWidget(gl.GLViewWidget):
@@ -64,7 +154,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.setAutoFillBackground(False)
         self.setMinimumSize(100, 100)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.setBackgroundColor((31, 34, 39, 255))
+        self.setBackgroundColor(_rgba255(tokens.VP_BG, 1.0))
         self.setStyleSheet(
             """
             QOpenGLWidget#ThreeDViewportWidget {
@@ -117,49 +207,70 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._base_render_face_colors: np.ndarray | None = None
         self._source_vertex_colors: np.ndarray | None = None
         self._source_face_colors: np.ndarray | None = None
+        self._render_mesh_is_volume = False
 
         self._pending_hover_pos: Tuple[float, float] | None = None
         self._mesh_center = np.zeros(3, dtype=np.float64)
         self._floating_orbit_last_pos: QPointF | None = None
 
-        self.grid_item = gl.GLGridItem(color=(85, 85, 85, 110))
-        self.grid_item.setSize(x=12000.0, y=12000.0, z=1.0)
-        self.grid_item.setSpacing(10.0, 10.0, 1.0)
-        self.addItem(self.grid_item)
+        self.grid_minor_item = gl.GLGridItem(color=_rgba255(tokens.GRID_MINOR, 0.55))
+        self.grid_minor_item.setSize(x=12000.0, y=12000.0, z=1.0)
+        self.grid_minor_item.setSpacing(10.0, 10.0, 1.0)
+        self.addItem(self.grid_minor_item)
 
-        self.mesh_item = gl.GLMeshItem(drawFaces=True, drawEdges=False, smooth=True, shader="shaded")
+        self.grid_major_item = gl.GLGridItem(color=_rgba255(tokens.GRID_MAJOR, 0.75))
+        self.grid_major_item.setSize(x=12000.0, y=12000.0, z=1.0)
+        self.grid_major_item.setSpacing(50.0, 50.0, 1.0)
+        self.addItem(self.grid_major_item)
+
+        self.mesh_item = _CadMeshItem(
+            drawFaces=True,
+            drawEdges=False,
+            smooth=True,
+            shader="shaded",
+            polygon_offset_fill=True,
+        )
         self.mesh_item.opts["smooth"] = True
-        self.mesh_item.opts["color"] = (0.70, 0.76, 0.84, 1.0)
+        self.mesh_item.opts["color"] = (*tokens.hex_to_rgbf(tokens.MESH_DIFFUSE), 1.0)
         self.mesh_item.setGLOptions("opaque")
+        self.mesh_item.setDepthValue(0)
         self.addItem(self.mesh_item)
 
-        self.wire_item = gl.GLMeshItem(drawFaces=False, drawEdges=True, smooth=False, shader="shaded")
-        self.wire_item.opts["edgeColor"] = (0.0, 0.0, 0.0, 1.0)
+        self.wire_item = _CadMeshItem(
+            drawFaces=False,
+            drawEdges=True,
+            smooth=False,
+            shader="shaded",
+            polygon_offset_line=True,
+        )
+        self.wire_item.opts["edgeColor"] = (*tokens.hex_to_rgbf(tokens.EDGE), 0.30)
         self.wire_item.setGLOptions("translucent")
+        self.wire_item.setDepthValue(1)
         self.addItem(self.wire_item)
 
-        self.selection_item = gl.GLMeshItem(
+        self.selection_item = _CadMeshItem(
             drawFaces=True,
             drawEdges=False,
             smooth=True,
             shader="shaded",
             glOptions="translucent",
         )
+        self.selection_item.setDepthValue(2)
         self.selection_item.setVisible(False)
         self.addItem(self.selection_item)
 
         self.overlay = QLabel("Drop 3D Model Here\n(STL / OBJ / STEP)", self)
         self.overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.overlay.setStyleSheet(
-            f"QLabel {{ color:{tokens.TEXT_SECONDARY}; font-size:24px; font-weight:{tokens.FONT_WEIGHT_SEMIBOLD}; background:transparent; }}"
+            f"QLabel {{ color:{tokens.BORDER}; font-size:24px; font-weight:{tokens.FONT_WEIGHT_SEMIBOLD}; background:transparent; }}"
         )
         self.overlay.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
         self.dim_label = QLabel("", self)
         self.dim_label.setStyleSheet(
-            f"QLabel {{ color:{tokens.TEXT_PRIMARY}; background-color:rgba(31,34,39,170); border:1px solid {tokens.BORDER}; padding:4px 8px; }}"
+            f"QLabel {{ color:{tokens.TEXT_PRIMARY}; background-color:{tokens.rgba(tokens.BG_PANEL, 0.86)}; border:1px solid {tokens.BORDER}; padding:{tokens.SPACE_XS}px {tokens.SPACE_S}px; }}"
         )
-        self.dim_label.move(14, 14)
+        self.dim_label.move(tokens.SPACE_M, tokens.SPACE_M)
         self.dim_label.setMinimumSize(220, 28)
         self.dim_label.show()
 
@@ -179,43 +290,25 @@ class ThreeDViewportWidget(gl.GLViewWidget):
     def initializeGL(self) -> None:  # noqa: N802
         super().initializeGL()
         try:
+            vp_r, vp_g, vp_b = tokens.hex_to_rgbf(tokens.VP_BG)
+            ogl.glClearColor(vp_r, vp_g, vp_b, 1.0)
             ogl.glEnable(ogl.GL_DEPTH_TEST)
-            ogl.glEnable(ogl.GL_LIGHTING)
-            ogl.glEnable(ogl.GL_LIGHT0)
-            # Force material tracking so per-vertex/per-face colors are honored under lighting.
-            ogl.glEnable(ogl.GL_COLOR_MATERIAL)
-            ogl.glEnable(ogl.GL_NORMALIZE)
-            ogl.glColorMaterial(ogl.GL_FRONT_AND_BACK, ogl.GL_AMBIENT_AND_DIFFUSE)
-            ogl.glLightfv(ogl.GL_LIGHT0, ogl.GL_DIFFUSE, [0.8, 0.8, 0.8, 1.0])
-            ogl.glLightfv(ogl.GL_LIGHT0, ogl.GL_AMBIENT, [0.2, 0.2, 0.2, 1.0])
-            ogl.glLightfv(ogl.GL_LIGHT0, ogl.GL_SPECULAR, [0.1, 0.1, 0.1, 1.0])
-            ogl.glMaterialfv(ogl.GL_FRONT, ogl.GL_SPECULAR, [0.1, 0.1, 0.1, 1.0])
-            ogl.glMaterialf(ogl.GL_FRONT, ogl.GL_SHININESS, 16.0)
+            self._prepare_shader_pipeline_state()
         except Exception:
-            # Some OpenGL backends ignore fixed-function lighting with shader pipelines.
             pass
 
     def paintGL(self) -> None:  # noqa: N802
-        self._update_headlamp_light()
+        self._prepare_shader_pipeline_state()
         super().paintGL()
-        self._paint_soft_background_gradient()
+        self._prepare_shader_pipeline_state()
         self._update_floating_orbit_button_position()
 
-    def _update_headlamp_light(self) -> None:
+    def _prepare_shader_pipeline_state(self) -> None:
         try:
-            ogl.glEnable(ogl.GL_LIGHTING)
-            ogl.glEnable(ogl.GL_LIGHT0)
-            ogl.glEnable(ogl.GL_COLOR_MATERIAL)
-            ogl.glColorMaterial(ogl.GL_FRONT_AND_BACK, ogl.GL_AMBIENT_AND_DIFFUSE)
-            ogl.glLightfv(ogl.GL_LIGHT0, ogl.GL_AMBIENT, [0.2, 0.2, 0.2, 1.0])
-            ogl.glLightfv(ogl.GL_LIGHT0, ogl.GL_DIFFUSE, [0.8, 0.8, 0.8, 1.0])
-            ogl.glLightfv(ogl.GL_LIGHT0, ogl.GL_SPECULAR, [0.1, 0.1, 0.1, 1.0])
-            ogl.glMatrixMode(ogl.GL_MODELVIEW)
-            ogl.glPushMatrix()
-            ogl.glLoadIdentity()
-            # Headlamp at camera origin to keep mesh lit regardless of view direction.
-            ogl.glLightfv(ogl.GL_LIGHT0, ogl.GL_POSITION, [0.0, 0.0, 1.0, 0.0])
-            ogl.glPopMatrix()
+            ogl.glDisable(ogl.GL_LIGHTING)
+            ogl.glDisable(ogl.GL_LIGHT0)
+            ogl.glDisable(ogl.GL_COLOR_MATERIAL)
+            ogl.glDisable(ogl.GL_NORMALIZE)
         except Exception:
             pass
 
@@ -223,8 +316,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         gradient = QLinearGradient(0.0, 0.0, 0.0, float(max(1, self.height())))
-        gradient.setColorAt(0.0, QColor(42, 47, 54, 80))
-        gradient.setColorAt(1.0, QColor(31, 34, 39, 95))
+        gradient.setColorAt(0.0, QColor(tokens.VP_BG))
+        gradient.setColorAt(1.0, QColor(tokens.VP_BG))
         painter.fillRect(self.rect(), gradient)
         painter.end()
 
@@ -424,20 +517,20 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.hud.setStyleSheet(
             f"""
             QWidget#ViewportHUD {{
-                background-color: rgba(31, 34, 39, 180);
+                background-color: {tokens.rgba(tokens.BG_MAIN, 0.84)};
                 border: 1px solid {tokens.BORDER};
-                border-radius: {tokens.RADIUS_1}px;
+                border-radius: {tokens.RADIUS_FLOATING}px;
             }}
             QToolButton {{
-                min-width:30px;
-                min-height:30px;
-                max-width:30px;
-                max-height:30px;
+                min-width:36px;
+                min-height:36px;
+                max-width:36px;
+                max-height:36px;
                 color:{tokens.TEXT_PRIMARY};
                 background-color:{tokens.BG_PANEL};
                 border:1px solid {tokens.BORDER};
                 border-radius:{tokens.RADIUS_1}px;
-                font-size:15px;
+                font-size:14px;
             }}
             QToolButton:checked {{
                 border-color:{tokens.ACCENT};
@@ -446,8 +539,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             """
         )
         hud_layout = QVBoxLayout(self.hud)
-        hud_layout.setContentsMargins(8, 8, 8, 8)
-        hud_layout.setSpacing(6)
+        hud_layout.setContentsMargins(tokens.SPACE_S, tokens.SPACE_S, tokens.SPACE_S, tokens.SPACE_S)
+        hud_layout.setSpacing(tokens.SPACE_S)
 
         self.hud_fit_btn = QToolButton(self.hud)
         self.hud_fit_btn.setText("\u26F6")
@@ -485,28 +578,26 @@ class ThreeDViewportWidget(gl.GLViewWidget):
 
         self.floating_orbit_btn = OrbitDragButton(self)
         self.floating_orbit_btn.setObjectName("FloatingOrbitButton")
-        self.floating_orbit_btn.setText("\u21BB")
+        self.floating_orbit_btn.setText("")
         self.floating_orbit_btn.setToolTip("Drag to Orbit Around Model")
-        self.floating_orbit_btn.setCursor(Qt.CursorShape.OpenHandCursor)
-        self.floating_orbit_btn.setFixedSize(36, 36)
+        self.floating_orbit_btn.setFixedSize(40, 40)
         self.floating_orbit_btn.setStyleSheet(
             f"""
             QToolButton#FloatingOrbitButton {{
-                color: {tokens.TEXT_PRIMARY};
-                font-size: 17px;
-                font-weight: 600;
                 border: none;
-                border-radius: 18px;
-                background-color: rgba(42, 47, 54, 150);
+                border-radius: 20px;
+                background-color: rgba(255, 255, 255, 20);
+                padding: 0px;
             }}
             QToolButton#FloatingOrbitButton:hover {{
-                background-color: rgba(50, 56, 66, 185);
+                background-color: rgba(255, 255, 255, 32);
             }}
             QToolButton#FloatingOrbitButton:pressed {{
-                background-color: rgba(31, 34, 39, 210);
+                background-color: rgba(255, 255, 255, 32);
             }}
             """
         )
+        set_button_icon(self.floating_orbit_btn, "orbit_button", size=24, color=tokens.ACCENT)
         self.floating_orbit_btn.dragStarted.connect(self._on_floating_orbit_drag_started)
         self.floating_orbit_btn.dragMoved.connect(self._on_floating_orbit_drag_moved)
         self.floating_orbit_btn.dragFinished.connect(self._on_floating_orbit_drag_finished)
@@ -523,7 +614,6 @@ class ThreeDViewportWidget(gl.GLViewWidget):
 
     def _on_floating_orbit_drag_started(self, global_pos: QPointF) -> None:
         self._floating_orbit_last_pos = QPointF(global_pos)
-        self.floating_orbit_btn.setCursor(Qt.CursorShape.ClosedHandCursor)
 
     def _on_floating_orbit_drag_moved(self, global_pos: QPointF) -> None:
         if self._floating_orbit_last_pos is None:
@@ -537,7 +627,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
 
     def _on_floating_orbit_drag_finished(self) -> None:
         self._floating_orbit_last_pos = None
-        self.floating_orbit_btn.setCursor(Qt.CursorShape.OpenHandCursor)
+        self.floating_orbit_btn.setCursor(Qt.CursorShape.SizeAllCursor)
         self._on_camera_event()
 
     def mapFrom3D(self, point_3d: np.ndarray | Tuple[float, float, float] | QVector3D) -> QPoint:
@@ -569,12 +659,16 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         if self.vertices is None:
             self.floating_orbit_btn.hide()
             return
+        if self._floating_orbit_last_pos is not None:
+            return
 
         anchor = self.mapFrom3D(self._mesh_center)
         btn = self.floating_orbit_btn
-        margin = 8
-        x = max(margin, min(self.width() - btn.width() - margin, anchor.x() + 16))
-        y = max(margin, min(self.height() - btn.height() - margin, anchor.y() + 16))
+        margin = tokens.SPACE_S
+        x = anchor.x() - (btn.width() // 2)
+        y = anchor.y() - (btn.height() // 2)
+        x = max(margin, min(self.width() - btn.width() - margin, x))
+        y = max(margin, min(self.height() - btn.height() - margin, y))
         btn.move(int(x), int(y))
         btn.show()
         btn.raise_()
@@ -653,6 +747,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._base_render_face_colors = None
         self._source_vertex_colors = None
         self._source_face_colors = None
+        self._render_mesh_is_volume = False
         self._mesh_center = np.zeros(3, dtype=np.float64)
         self._floating_orbit_last_pos = None
 
@@ -664,15 +759,15 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             drawEdges=False,
         )
         self.mesh_item.opts["smooth"] = True
-        self.mesh_item.opts["color"] = (0.70, 0.76, 0.84, 1.0)
+        self.mesh_item.opts["color"] = (*tokens.hex_to_rgbf(tokens.MESH_DIFFUSE), 1.0)
         self.wire_item.setMeshData(
             vertexes=np.empty((0, 3), dtype=np.float32),
             faces=np.empty((0, 3), dtype=np.int32),
             drawFaces=False,
             drawEdges=True,
-            edgeColor=(0.0, 0.0, 0.0, 1.0),
+            edgeColor=(*tokens.hex_to_rgbf(tokens.EDGE), 0.30),
         )
-        self.wire_item.opts["edgeColor"] = (0.0, 0.0, 0.0, 1.0)
+        self.wire_item.opts["edgeColor"] = (*tokens.hex_to_rgbf(tokens.EDGE), 0.30)
         self.selection_item.setVisible(False)
 
         self.setCameraPosition(pos=QVector3D(0.0, 0.0, 0.0), distance=600.0, elevation=24.0, azimuth=-58.0)
@@ -681,6 +776,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._update_grid_extent()
         self.overlay.show()
         self.dim_label.setText("")
+        self.dim_label.hide()
         self.floating_orbit_btn.hide()
         self.update()
 
@@ -698,7 +794,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.vertices = np.asarray(vertices, dtype=np.float64)
         self._mesh_center = self.vertices.mean(axis=0)
         self.vertices32 = np.ascontiguousarray(self.vertices.astype(np.float32, copy=False))
-        self.render_faces = np.asarray(render_faces, dtype=np.int64)
+        raw_render_faces = np.asarray(render_faces, dtype=np.int64)
+        self.render_faces = self._fix_render_face_winding(raw_render_faces)
         self.render_faces32 = np.ascontiguousarray(self.render_faces.astype(np.int32, copy=False))
         self.pick_faces = np.asarray(pick_faces, dtype=np.int64) if pick_faces is not None else self.render_faces
 
@@ -728,6 +825,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
 
         lx, ly, lz = dims_mm
         self.dim_label.setText(f"{name} | LxWxH: {lx:.1f} x {ly:.1f} x {lz:.1f} mm")
+        self.dim_label.show()
         self.overlay.hide()
         self._on_camera_event()
 
@@ -948,19 +1046,78 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         y_size = max(2000.0, min(200000.0, span * 2.0))
         step = max(10.0, round((span / 80.0) / 10.0) * 10.0)
 
-        self.grid_item.resetTransform()
-        self.grid_item.setSize(x=x_size, y=y_size, z=1.0)
-        self.grid_item.setSpacing(step, step, 1.0)
-        self.grid_item.setColor((85, 85, 85, 110))
-        self.grid_item.translate(cx, cy, 0.0)
+        minor_step = step
+        major_step = max(50.0, step * 5.0)
+
+        self.grid_minor_item.resetTransform()
+        self.grid_minor_item.setSize(x=x_size, y=y_size, z=1.0)
+        self.grid_minor_item.setSpacing(minor_step, minor_step, 1.0)
+        self.grid_minor_item.setColor(_rgba255(tokens.GRID_MINOR, 0.55))
+        self.grid_minor_item.translate(cx, cy, 0.0)
+
+        self.grid_major_item.resetTransform()
+        self.grid_major_item.setSize(x=x_size, y=y_size, z=1.0)
+        self.grid_major_item.setSpacing(major_step, major_step, 1.0)
+        self.grid_major_item.setColor(_rgba255(tokens.GRID_MAJOR, 0.75))
+        self.grid_major_item.translate(cx, cy, 0.1)
+
+    def _fix_render_face_winding(self, faces: np.ndarray) -> np.ndarray:
+        if self.vertices is None or faces.size == 0:
+            return faces
+        self._render_mesh_is_volume = False
+        try:
+            tri_mesh = trimesh.Trimesh(vertices=self.vertices, faces=faces, process=False)
+            self._render_mesh_is_volume = bool(getattr(tri_mesh, "is_volume", False))
+            if not self._render_mesh_is_volume:
+                return faces
+            volume = float(getattr(tri_mesh, "volume", 0.0))
+            if np.isfinite(volume) and volume < 0.0:
+                fixed_faces = faces.copy()
+                fixed_faces[:, [1, 2]] = fixed_faces[:, [2, 1]]
+                return fixed_faces
+        except Exception:
+            return faces
+        return faces
+
+    def _normalize_normals(self, normals: np.ndarray | None) -> np.ndarray | None:
+        if normals is None or self.vertices is None:
+            return None
+        arr = np.asarray(normals, dtype=np.float64)
+        if arr.shape != self.vertices.shape:
+            return None
+        lens = np.linalg.norm(arr, axis=1)
+        lens = np.where(lens < 1e-12, 1.0, lens)
+        arr = arr / lens[:, None]
+        return arr
+
+    def _invert_normals_if_needed(self, normals: np.ndarray | None) -> np.ndarray | None:
+        if normals is None or self.vertices is None:
+            return None
+        if not self._render_mesh_is_volume:
+            return normals
+        radial = self.vertices - self._mesh_center[None, :]
+        radial_len = np.linalg.norm(radial, axis=1)
+        valid = radial_len > 1e-10
+        if int(np.count_nonzero(valid)) < 16:
+            return normals
+        radial_dir = radial[valid] / radial_len[valid][:, None]
+        score = float(np.mean(np.einsum("ij,ij->i", normals[valid], radial_dir)))
+        if score < -0.20:
+            return -normals
+        return normals
 
     def _compute_vertex_normals_from_trimesh(self) -> np.ndarray | None:
         if self.vertices is None or self.render_faces is None:
             return None
         try:
             tri_mesh = trimesh.Trimesh(vertices=self.vertices, faces=self.render_faces, process=False)
-            vn = np.asarray(tri_mesh.vertex_normals, dtype=np.float64)
-            if len(vn) == len(self.vertices):
+            if bool(getattr(tri_mesh, "is_volume", False)):
+                volume = float(getattr(tri_mesh, "volume", 0.0))
+                if np.isfinite(volume) and volume < 0.0:
+                    tri_mesh.invert()
+            vn = self._normalize_normals(np.asarray(tri_mesh.vertex_normals, dtype=np.float64))
+            vn = self._invert_normals_if_needed(vn)
+            if vn is not None and len(vn) == len(self.vertices):
                 return vn
         except Exception:
             pass
@@ -976,9 +1133,9 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             vn[face[0]] += fn[i]
             vn[face[1]] += fn[i]
             vn[face[2]] += fn[i]
-        lens = np.linalg.norm(vn, axis=1)
-        lens = np.where(lens < 1e-12, 1e-12, lens)
-        return vn / lens[:, None]
+        vn = self._normalize_normals(vn)
+        vn = self._invert_normals_if_needed(vn)
+        return vn
 
     def _normalize_color_array(self, colors: np.ndarray | None, expected_len: int | None = None) -> np.ndarray | None:
         if colors is None:
@@ -1111,21 +1268,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         if self.vertices is None or self.render_faces is None or len(self.render_faces) == 0:
             return np.empty((0, 4), dtype=np.float32)
 
-        cad_blue = np.array([100.0 / 255.0, 150.0 / 255.0, 220.0 / 255.0], dtype=np.float32)
-        base = np.tile(cad_blue[None, :], (len(self.render_faces), 1))
-
-        # Use normals to add depth while retaining a clear CAD-blue fallback tone.
-        if self._vertex_normals is not None and len(self._vertex_normals) == len(self.vertices):
-            vn_faces = self._vertex_normals[self.render_faces].mean(axis=1)
-            vn_norm = np.linalg.norm(vn_faces, axis=1)
-            vn_norm = np.where(vn_norm < 1e-12, 1e-12, vn_norm)
-            vn_faces = vn_faces / vn_norm[:, None]
-            light_dir = np.array([1.0, 1.0, 1.0], dtype=np.float64)
-            light_dir = light_dir / np.linalg.norm(light_dir)
-            diffuse = np.clip(np.einsum("ij,j->i", vn_faces, light_dir), 0.0, 1.0)
-            shade = (0.72 + 0.28 * diffuse).astype(np.float32)
-            base = np.clip(base * shade[:, None] + 0.08, 0.0, 1.0)
-
+        mesh_diffuse = np.array(tokens.hex_to_rgbf(tokens.MESH_DIFFUSE), dtype=np.float32)
+        base = np.tile(mesh_diffuse[None, :], (len(self.render_faces), 1)).astype(np.float32, copy=False)
         alpha = np.full((len(base), 1), 0.98, dtype=np.float32)
         return np.concatenate((base.astype(np.float32), alpha), axis=1)
 
@@ -1208,17 +1352,13 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             shader="shaded",
         )
         self.mesh_item.opts["smooth"] = True
-        self.mesh_item.opts["color"] = (0.70, 0.76, 0.84, 1.0)
+        self.mesh_item.opts["color"] = (*tokens.hex_to_rgbf(tokens.MESH_DIFFUSE), 1.0)
         self.mesh_item.setGLOptions("opaque")
         self.mesh_item.setVisible(not self.wireframe_enabled)
 
-        center = self._mesh_center.astype(np.float32, copy=False)
-        wire_vertices = np.ascontiguousarray((self.vertices32 - center[None, :]) * 1.001 + center[None, :], dtype=np.float32)
-        edge_color = (
-            (float(self._accent_rgb[0]), float(self._accent_rgb[1]), float(self._accent_rgb[2]), 0.95)
-            if self.wireframe_enabled
-            else (0.0, 0.0, 0.0, 0.65)
-        )
+        wire_vertices = np.ascontiguousarray(self.vertices32, dtype=np.float32)
+        edge_alpha = 0.35 if self.wireframe_enabled else 0.30
+        edge_color = (*tokens.hex_to_rgbf(tokens.EDGE), edge_alpha)
         self.wire_item.setMeshData(
             vertexes=wire_vertices,
             faces=self.render_faces32,

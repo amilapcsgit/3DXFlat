@@ -56,8 +56,8 @@ class BreadcrumbBar(QWidget):
         super().__init__(parent)
         self._buttons: Dict[int, QToolButton] = {}
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(8)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         steps = ["1. Import", "2. Select & Flatten", "3. Nest & Optimize", "4. Export"]
         for idx, text in enumerate(steps):
             btn = QToolButton(self)
@@ -167,8 +167,8 @@ class Flatten2DPreviewWidget(QWidget):
         self._seam_mm = 12.0
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         title = QLabel("2D Pattern Preview (CAD)", self)
         title.setStyleSheet("font-size:14px; font-weight:600; color:#cfd7e3;")
         layout.addWidget(title)
@@ -314,8 +314,8 @@ class NestingRollWidget(QWidget):
         self._logger = None
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
         self.title = QLabel("Fabric Roll View", self)
         self.title.setStyleSheet("font-size:14px; font-weight:600; color:#cfd7e3;")
         layout.addWidget(self.title)
@@ -756,9 +756,11 @@ class ThreeDXFlatMainWindow(QMainWindow):
 
         self.page_nest = QWidget(self)
         nest_layout = QVBoxLayout(self.page_nest)
-        nest_layout.setContentsMargins(8, 8, 8, 8)
-        nest_layout.setSpacing(8)
+        nest_layout.setContentsMargins(0, 0, 0, 0)
+        nest_layout.setSpacing(0)
         nav_row = QHBoxLayout()
+        nav_row.setContentsMargins(0, 0, 0, 0)
+        nav_row.setSpacing(0)
         self.nest_prev_btn = QPushButton("Previous Sheet", self.page_nest)
         self.nest_next_btn = QPushButton("Next Sheet", self.page_nest)
         self.nest_sheet_label = QLabel("Sheet: -", self.page_nest)
@@ -850,8 +852,8 @@ class ThreeDXFlatMainWindow(QMainWindow):
     def _build_guided_sidebar(self) -> QWidget:
         host = QWidget(self)
         v = QVBoxLayout(host)
-        v.setContentsMargins(8, 8, 8, 8)
-        v.setSpacing(8)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(0)
 
         # Step 1
         step1 = QGroupBox("Step 1: Geometry", host)
@@ -1287,7 +1289,7 @@ def run_qt_app() -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     apply_app_theme(app)
     app.setFont(QFont(tokens.FONT_FAMILY, tokens.FONT_SIZE_BODY))
-    app.setWindowIcon(QIcon(":/brand/app_icon.ico"))
+    app.setWindowIcon(QIcon(":/icons/logo.svg"))
 
     splash_pix = QPixmap(760, 360)
     splash_pix.fill(QColor(tokens.BG_MAIN))

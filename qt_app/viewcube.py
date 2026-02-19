@@ -8,6 +8,14 @@ from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import QColor, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import QWidget
 
+from ui.theme import tokens
+
+
+def _with_alpha(color_hex: str, alpha: int) -> QColor:
+    col = QColor(color_hex)
+    col.setAlpha(max(0, min(255, int(alpha))))
+    return col
+
 
 class ViewCubeWidget(QWidget):
     faceClicked = Signal(str)
@@ -16,7 +24,11 @@ class ViewCubeWidget(QWidget):
         super().__init__(parent)
         self.setFixedSize(140, 140)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet("background-color: #252525; border: 1px solid #3b4350; border-radius: 8px;")
+        self.setStyleSheet(
+            f"background-color: {tokens.rgba(tokens.BG_MAIN, 0.95)}; "
+            f"border: 1px solid {tokens.BORDER}; "
+            f"border-radius: {tokens.RADIUS_PANEL}px;"
+        )
         self.setMouseTracking(True)
         self._elev = 24.0
         self._azim = -58.0
@@ -65,12 +77,12 @@ class ViewCubeWidget(QWidget):
             "mmm": np.array([-1.0, -1.0, -1.0], dtype=np.float64),
         }
         faces = [
-            ("TOP", ["mpp", "ppp", "pmp", "mmp"], QColor(105, 105, 105, 238), "TOP"),
-            ("BOTTOM", ["mpm", "ppm", "pmm", "mmm"], QColor(58, 58, 58, 220), "BOT"),
-            ("FRONT", ["mmp", "pmp", "pmm", "mmm"], QColor(85, 85, 85, 232), "F"),
-            ("BACK", ["mpp", "ppp", "ppm", "mpm"], QColor(78, 78, 78, 228), "B"),
-            ("RIGHT", ["ppp", "ppm", "pmm", "pmp"], QColor(74, 74, 74, 226), "R"),
-            ("LEFT", ["mpp", "mpm", "mmm", "mmp"], QColor(92, 92, 92, 230), "L"),
+            ("TOP", ["mpp", "ppp", "pmp", "mmp"], _with_alpha(tokens.BG_HOVER, 238), "TOP"),
+            ("BOTTOM", ["mpm", "ppm", "pmm", "mmm"], _with_alpha(tokens.BG_MAIN, 220), "BOT"),
+            ("FRONT", ["mmp", "pmp", "pmm", "mmm"], _with_alpha(tokens.BG_PANEL, 232), "F"),
+            ("BACK", ["mpp", "ppp", "ppm", "mpm"], _with_alpha(tokens.BG_PANEL, 228), "B"),
+            ("RIGHT", ["ppp", "ppm", "pmm", "pmp"], _with_alpha(tokens.BG_MAIN, 226), "R"),
+            ("LEFT", ["mpp", "mpm", "mmm", "mmp"], _with_alpha(tokens.BG_HOVER, 230), "L"),
         ]
 
         rverts = {k: self._rotate(v) for k, v in verts.items()}
@@ -85,7 +97,7 @@ class ViewCubeWidget(QWidget):
         self._hotspots = {}
         self._nav_hotspots = []
         self._draw_order = []
-        p.setPen(QPen(QColor("#b5c7df"), 1.0))
+        p.setPen(QPen(QColor(tokens.TEXT_SECONDARY), 1.0))
         for depth, name, qpoly, color, label in draw_faces:
             col = QColor(color)
             if name == self._hover_face:
@@ -97,13 +109,13 @@ class ViewCubeWidget(QWidget):
             p.setBrush(col)
             p.drawPolygon(qpoly)
             ctr = qpoly.boundingRect().center()
-            p.setPen(QPen(QColor("#ffffff"), 1.0))
+            p.setPen(QPen(QColor(tokens.ON_ACCENT), 1.0))
             p.drawText(QPointF(ctr.x() - 7.0, ctr.y() + 4.0), label)
-            p.setPen(QPen(QColor("#b5c7df"), 1.0))
+            p.setPen(QPen(QColor(tokens.TEXT_SECONDARY), 1.0))
             self._hotspots[name] = qpoly
             self._draw_order.append(name)
 
-        p.setPen(QColor("#9fb0c7"))
+        p.setPen(QColor(tokens.TEXT_SECONDARY))
         p.drawText(QPointF(10.0, 17.0), "View Cube")
         p.drawText(QPointF(10.0, self.height() - 10.0), "Click face/pad")
 
@@ -111,9 +123,9 @@ class ViewCubeWidget(QWidget):
         ring_rx = scale * 1.05
         ring_ry = scale * 0.34
         p.setBrush(Qt.BrushStyle.NoBrush)
-        p.setPen(QPen(QColor("#9a9a9a"), 1.25))
+        p.setPen(QPen(QColor(tokens.BORDER), 1.25))
         p.drawEllipse(ring_center, ring_rx, ring_ry)
-        p.setPen(QPen(QColor("#ffffff"), 1.0))
+        p.setPen(QPen(QColor(tokens.ON_ACCENT), 1.0))
         p.drawText(QPointF(ring_center.x() - 4.0, ring_center.y() - ring_ry - 4.0), "N")
         p.drawText(QPointF(ring_center.x() - 3.0, ring_center.y() + ring_ry + 12.0), "S")
 
@@ -130,11 +142,11 @@ class ViewCubeWidget(QWidget):
             r = 8.0
             self._nav_hotspots.append((name, pos, r))
             active = self._hover_face == name
-            p.setBrush(QColor(120, 120, 120, 240) if active else QColor(72, 72, 72, 225))
-            p.setPen(QPen(QColor("#d6d6d6"), 1.0))
+            p.setBrush(_with_alpha(tokens.BG_HOVER, 240) if active else _with_alpha(tokens.BG_MAIN, 225))
+            p.setPen(QPen(QColor(tokens.TEXT_PRIMARY), 1.0))
             p.drawEllipse(pos, r, r)
             lab = "D" if name == "BOTTOM" else ("B" if name == "BACK" else ("F" if name == "FRONT" else name[0]))
-            p.setPen(QPen(QColor("#ffffff"), 1.0))
+            p.setPen(QPen(QColor(tokens.ON_ACCENT), 1.0))
             p.drawText(QPointF(pos.x() - 3.0, pos.y() + 4.0), lab)
         p.end()
 
