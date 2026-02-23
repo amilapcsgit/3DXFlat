@@ -91,6 +91,36 @@ Result:
 - Pick-point orbit pivot is now available (double-click)
 - Mesh remains more readable in dark mode and under rotation
 
+### 2c. World-Tilt Fix (Turntable Model Rotation, Grid Stays Fixed)
+
+Additional viewport interaction changes in `qt_app/viewport.py` to address the remaining "whole world tilts" problem:
+
+- Orbit drag now uses a **turntable model rotation** path by default
+  - the **mesh**, **wireframe**, and **selection overlay** are rotated as display items
+  - the **camera** is no longer the primary thing rotating during orbit drag
+- The grid remains in the world plane (`XY`/`XZ` as currently implemented)
+  - this keeps the workspace visually stable while the imported object turns
+- Added persistent display rotation state:
+  - `_model_yaw_deg`
+  - `_model_pitch_deg`
+- Added model display transform helpers:
+  - `_apply_model_display_transform()`
+  - `_reset_model_display_rotation()`
+  - `_orbit_model_by_delta(...)`
+- Reset/load flows now clear display rotation before fitting camera:
+  - `clear_view()`
+  - `set_mesh(...)`
+  - `reset_camera()`
+- **Raycast picking / hover compensation**
+  - `_raycast_face()` inverse-transforms the screen ray into model space when the display is rotated
+  - preserves face picking and hover on the rotated-on-screen object
+
+Result:
+
+- Imported object turns/moves visually during orbit
+- Grid stays fixed and no longer appears to rotate with the model
+- Hover/select picking continues to work after turning the model
+
 ### 3. Qt Stylesheet Application + Primary Button Object Name
 
 Implemented in:
@@ -119,12 +149,14 @@ Result:
 
 - Camera navigation:
   - orbit / pan / zoom (mouse + HUD buttons)
+  - current default orbit uses a **turntable model-rotation path** (mesh rotates, world grid stays fixed)
 - Mesh rendering:
   - face mesh item
   - wireframe/edge mesh item
   - selection overlay mesh item
 - Selection:
   - raycast picking against triangles
+  - raycast is compensated for display rotation when turntable mode is active
   - smart selection via face adjacency + angle threshold
 - Camera target / orbit center:
   - pyqtgraph uses `self.opts["center"]` as orbit pivot
@@ -163,6 +195,10 @@ Key rendering flow:
    - It improves visual depth, but it is not a true OpenGL background gradient pass yet.
    - A future shader/fullscreen-pass implementation would be cleaner and more controllable.
 
+7. Camera telemetry/UI signals may not fully represent turntable display rotation.
+   - Orbit drag now rotates the model display items (not only the camera).
+   - Any UI elements that infer orientation only from camera azimuth/elevation may not reflect the object's turned orientation without an additional model-rotation signal.
+
 ## Validation Performed
 
 - Python syntax checks passed:
@@ -177,3 +213,5 @@ Key rendering flow:
 2. Rotate model 180 degrees and confirm face shading remains visible.
 3. Toggle wireframe / edges and confirm line thickness and z-fighting behavior.
 4. Confirm top **Run Flatten** button uses the cyan accent (`#btnRunFlatten`) and the icon remains visible.
+5. Orbit the model and confirm the grid remains fixed while the object turns.
+6. Hover/select faces after orbiting and confirm picking still matches the displayed rotated mesh.

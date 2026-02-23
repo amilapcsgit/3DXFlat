@@ -325,6 +325,9 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._headlight_shader = _CadHeadlightShaderProgram()
         self._orbit_sensitivity = 0.65
         self._orbit_sensitivity_fine = 0.35
+        self._model_turntable_enabled = True
+        self._model_yaw_deg = 0.0
+        self._model_pitch_deg = 0.0
 
         self._pending_hover_pos: Tuple[float, float] | None = None
         self._mesh_center = np.zeros(3, dtype=np.float64)
@@ -438,6 +441,62 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             ogl.glDisable(ogl.GL_NORMALIZE)
         except Exception:
             pass
+
+    def _reset_model_display_rotation(self) -> None:
+        self._model_yaw_deg = 0.0
+        self._model_pitch_deg = 0.0
+        self._apply_model_display_transform()
+
+    def _model_rotation_matrix(self) -> np.ndarray:
+        yaw = math.radians(float(self._model_yaw_deg))
+        pitch = math.radians(float(self._model_pitch_deg))
+        cz = math.cos(yaw)
+        sz = math.sin(yaw)
+        cx = math.cos(pitch)
+        sx = math.sin(pitch)
+        r_yaw = np.array(
+            [
+                [cz, -sz, 0.0],
+                [sz, cz, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=np.float64,
+        )
+        r_pitch = np.array(
+            [
+                [1.0, 0.0, 0.0],
+                [0.0, cx, -sx],
+                [0.0, sx, cx],
+            ],
+            dtype=np.float64,
+        )
+        return r_pitch @ r_yaw
+
+    def _apply_model_display_transform(self) -> None:
+        cx, cy, cz = map(float, self._mesh_center.tolist())
+        yaw = float(self._model_yaw_deg)
+        pitch = float(self._model_pitch_deg)
+        for item in (self.mesh_item, self.wire_item, self.selection_item):
+            try:
+                item.resetTransform()
+                if abs(yaw) < 1e-9 and abs(pitch) < 1e-9:
+                    continue
+                # Final transform = T(center) * R(pitch) * R(yaw) * T(-center)
+                item.translate(-cx, -cy, -cz, local=False)
+                if abs(yaw) >= 1e-9:
+                    item.rotate(yaw, 0.0, 0.0, 1.0, local=False)
+                if abs(pitch) >= 1e-9:
+                    item.rotate(pitch, 1.0, 0.0, 0.0, local=False)
+                item.translate(cx, cy, cz, local=False)
+            except Exception:
+                pass
+
+    def _orbit_model_by_delta(self, dx: float, dy: float, modifiers: Qt.KeyboardModifiers) -> None:
+        sens = self._orbit_sensitivity_fine if (modifiers & Qt.KeyboardModifier.ShiftModifier) else self._orbit_sensitivity
+        self._model_yaw_deg = float((self._model_yaw_deg - (dx * sens)) % 360.0)
+        self._model_pitch_deg = float(np.clip(self._model_pitch_deg + (dy * sens), -85.0, 85.0))
+        self._apply_model_display_transform()
+        self.update()
 
     def _update_headlight_uniform_state(self) -> None:
         # Modern OpenGL / shader path (ui-enhance-v2.md): derive camera world
@@ -603,8 +662,11 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._nav_last = cur
 
         if self.is_rotating and self._active_nav_mode == "orbit":
-            sens = self._orbit_sensitivity_fine if (event.modifiers() & Qt.KeyboardModifier.ShiftModifier) else self._orbit_sensitivity
-            self.orbit(-dx * sens, dy * sens)
+            if self._model_turntable_enabled and self.vertices is not None:
+                self._orbit_model_by_delta(dx, dy, event.modifiers())
+            else:
+                sens = self._orbit_sensitivity_fine if (event.modifiers() & Qt.KeyboardModifier.ShiftModifier) else self._orbit_sensitivity
+                self.orbit(-dx * sens, dy * sens)
             self._on_camera_event()
             event.accept()
             return
@@ -857,7 +919,10 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         dx = float(global_pos.x() - self._floating_orbit_last_pos.x())
         dy = float(global_pos.y() - self._floating_orbit_last_pos.y())
         self._floating_orbit_last_pos = QPointF(global_pos)
-        self.orbit(-dx * self._orbit_sensitivity, dy * self._orbit_sensitivity)
+        if self._model_turntable_enabled and self.vertices is not None:
+            self._orbit_model_by_delta(dx, dy, Qt.KeyboardModifier.NoModifier)
+        else:
+            self.orbit(-dx * self._orbit_sensitivity, dy * self._orbit_sensitivity)
         self._on_camera_event()
 
     def _on_floating_orbit_drag_finished(self) -> None:
@@ -1011,6 +1076,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         )
         self.wire_item.opts["edgeColor"] = (*tokens.hex_to_rgbf(self._edge_color), 0.30)
         self.selection_item.setVisible(False)
+        self._reset_model_display_rotation()
 
         self.setCameraPosition(pos=QVector3D(0.0, 0.0, 0.0), distance=600.0, elevation=24.0, azimuth=-58.0)
         self.opts["fov"] = 45.0
@@ -1062,6 +1128,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._build_pick_to_render_map()
         self._prepare_pick_raycast_cache()
         self._update_mesh_visuals()
+        self._reset_model_display_rotation()
         self._fit_camera_to_mesh()
         self._update_grid_extent()
 
@@ -1115,6 +1182,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
 
     def reset_camera(self) -> None:
         if self.vertices is not None:
+            self._reset_model_display_rotation()
             self._fit_camera_to_mesh()
         else:
             self.clear_view()
@@ -1595,6 +1663,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.mesh_item.opts["color"] = (*tokens.hex_to_rgbf(self._mesh_diffuse_color), 1.0)
         self.mesh_item.setGLOptions("opaque")
         self.mesh_item.setVisible(not self.wireframe_enabled)
+        self._apply_model_display_transform()
 
         wire_vertices = np.ascontiguousarray(self.vertices32, dtype=np.float32)
         edge_alpha = 0.35 if self.wireframe_enabled else 0.30
@@ -1609,6 +1678,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.wire_item.opts["edgeColor"] = edge_color
         self.wire_item.setGLOptions("translucent")
         self.wire_item.setVisible(self.show_edges_enabled or self.wireframe_enabled)
+        self._apply_model_display_transform()
 
         if self.selected_faces and self.pick_faces is not None and self.vertices32 is not None:
             idx = np.asarray(sorted(self.selected_faces), dtype=np.int64)
@@ -1628,6 +1698,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                     shader=self._headlight_shader,
                 )
                 self.selection_item.setVisible(True)
+                self._apply_model_display_transform()
             else:
                 self.selection_item.setVisible(False)
         else:
@@ -1679,6 +1750,14 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         if ray is None:
             return None
         origin, direction = ray
+        if self._model_turntable_enabled and (abs(self._model_yaw_deg) > 1e-9 or abs(self._model_pitch_deg) > 1e-9):
+            r_inv = self._model_rotation_matrix().T
+            center = self._mesh_center.astype(np.float64, copy=False)
+            origin = center + (r_inv @ (origin - center))
+            direction = r_inv @ direction
+            dnorm = float(np.linalg.norm(direction))
+            if dnorm > 1e-12:
+                direction = direction / dnorm
 
         if face_indices is None:
             a = self._pick_tri_a
