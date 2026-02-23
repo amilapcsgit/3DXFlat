@@ -40,6 +40,28 @@ Windows launcher (recommended):
 
 This bootstrap launcher creates `.venv` (if missing), installs requirements, and starts the Qt/OpenGL UI.
 
+## Standalone EXE (Windows)
+
+Build a portable executable bundle (no Python needed on target machine):
+
+```powershell
+.\3DXFlat.bat --build-exe
+```
+
+You can also run:
+
+```powershell
+.\build_exe.bat
+```
+
+Build output:
+
+- `dist\3DXFlat\3DXFlat.exe`
+
+Deployment:
+
+- Copy the entire `dist\3DXFlat` folder to the target PC and run `3DXFlat.exe`.
+
 Default Python entrypoint:
 
 ```bash

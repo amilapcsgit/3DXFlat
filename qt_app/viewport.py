@@ -154,7 +154,14 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.setAutoFillBackground(False)
         self.setMinimumSize(100, 100)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.setBackgroundColor(_rgba255(tokens.VP_BG, 1.0))
+        self._viewport_theme = "light"
+        self._vp_bg_color = tokens.VP_BG
+        self._grid_minor_color = tokens.GRID_MINOR
+        self._grid_major_color = tokens.GRID_MAJOR
+        self._mesh_diffuse_color = tokens.MESH_DIFFUSE
+        self._edge_color = tokens.EDGE
+        self._apply_viewport_palette(self._viewport_theme)
+        self.setBackgroundColor(_rgba255(self._vp_bg_color, 1.0))
         self.setStyleSheet(
             """
             QOpenGLWidget#ThreeDViewportWidget {
@@ -213,12 +220,12 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._mesh_center = np.zeros(3, dtype=np.float64)
         self._floating_orbit_last_pos: QPointF | None = None
 
-        self.grid_minor_item = gl.GLGridItem(color=_rgba255(tokens.GRID_MINOR, 0.55))
+        self.grid_minor_item = gl.GLGridItem(color=_rgba255(self._grid_minor_color, 0.55))
         self.grid_minor_item.setSize(x=12000.0, y=12000.0, z=1.0)
         self.grid_minor_item.setSpacing(10.0, 10.0, 1.0)
         self.addItem(self.grid_minor_item)
 
-        self.grid_major_item = gl.GLGridItem(color=_rgba255(tokens.GRID_MAJOR, 0.75))
+        self.grid_major_item = gl.GLGridItem(color=_rgba255(self._grid_major_color, 0.75))
         self.grid_major_item.setSize(x=12000.0, y=12000.0, z=1.0)
         self.grid_major_item.setSpacing(50.0, 50.0, 1.0)
         self.addItem(self.grid_major_item)
@@ -231,7 +238,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             polygon_offset_fill=True,
         )
         self.mesh_item.opts["smooth"] = True
-        self.mesh_item.opts["color"] = (*tokens.hex_to_rgbf(tokens.MESH_DIFFUSE), 1.0)
+        self.mesh_item.opts["color"] = (*tokens.hex_to_rgbf(self._mesh_diffuse_color), 1.0)
         self.mesh_item.setGLOptions("opaque")
         self.mesh_item.setDepthValue(0)
         self.addItem(self.mesh_item)
@@ -243,7 +250,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             shader="shaded",
             polygon_offset_line=True,
         )
-        self.wire_item.opts["edgeColor"] = (*tokens.hex_to_rgbf(tokens.EDGE), 0.30)
+        self.wire_item.opts["edgeColor"] = (*tokens.hex_to_rgbf(self._edge_color), 0.30)
         self.wire_item.setGLOptions("translucent")
         self.wire_item.setDepthValue(1)
         self.addItem(self.wire_item)
@@ -290,7 +297,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
     def initializeGL(self) -> None:  # noqa: N802
         super().initializeGL()
         try:
-            vp_r, vp_g, vp_b = tokens.hex_to_rgbf(tokens.VP_BG)
+            vp_r, vp_g, vp_b = tokens.hex_to_rgbf(self._vp_bg_color)
             ogl.glClearColor(vp_r, vp_g, vp_b, 1.0)
             ogl.glEnable(ogl.GL_DEPTH_TEST)
             self._prepare_shader_pipeline_state()
@@ -316,10 +323,50 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         gradient = QLinearGradient(0.0, 0.0, 0.0, float(max(1, self.height())))
-        gradient.setColorAt(0.0, QColor(tokens.VP_BG))
-        gradient.setColorAt(1.0, QColor(tokens.VP_BG))
+        gradient.setColorAt(0.0, QColor(self._vp_bg_color))
+        gradient.setColorAt(1.0, QColor(self._vp_bg_color))
         painter.fillRect(self.rect(), gradient)
         painter.end()
+
+    def _apply_viewport_palette(self, theme: str) -> None:
+        if theme == "dark":
+            self._vp_bg_color = tokens.BG_MAIN
+            self._grid_minor_color = tokens.BG_HOVER
+            self._grid_major_color = tokens.BORDER
+            self._mesh_diffuse_color = tokens.TEXT_SECONDARY
+            self._edge_color = tokens.EDGE
+            return
+        self._vp_bg_color = tokens.VP_BG
+        self._grid_minor_color = tokens.GRID_MINOR
+        self._grid_major_color = tokens.GRID_MAJOR
+        self._mesh_diffuse_color = tokens.MESH_DIFFUSE
+        self._edge_color = tokens.EDGE
+
+    def viewport_theme(self) -> str:
+        return self._viewport_theme
+
+    def set_viewport_theme(self, theme: str) -> None:
+        normalized = str(theme).strip().lower()
+        if normalized not in {"light", "dark"}:
+            normalized = "light"
+        self._viewport_theme = normalized
+        self._apply_viewport_palette(normalized)
+        self.setBackgroundColor(_rgba255(self._vp_bg_color, 1.0))
+        if self.isValid():
+            try:
+                self.makeCurrent()
+                vp_r, vp_g, vp_b = tokens.hex_to_rgbf(self._vp_bg_color)
+                ogl.glClearColor(vp_r, vp_g, vp_b, 1.0)
+                self.doneCurrent()
+            except Exception:
+                pass
+
+        self._base_render_face_colors = self._build_source_face_colors()
+        if self._base_render_face_colors is None:
+            self._base_render_face_colors = self._build_default_face_colors()
+        self._update_grid_extent()
+        self._update_mesh_visuals()
+        self.update()
 
     def resizeEvent(self, event) -> None:  # noqa: N802
         super().resizeEvent(event)
@@ -759,15 +806,15 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             drawEdges=False,
         )
         self.mesh_item.opts["smooth"] = True
-        self.mesh_item.opts["color"] = (*tokens.hex_to_rgbf(tokens.MESH_DIFFUSE), 1.0)
+        self.mesh_item.opts["color"] = (*tokens.hex_to_rgbf(self._mesh_diffuse_color), 1.0)
         self.wire_item.setMeshData(
             vertexes=np.empty((0, 3), dtype=np.float32),
             faces=np.empty((0, 3), dtype=np.int32),
             drawFaces=False,
             drawEdges=True,
-            edgeColor=(*tokens.hex_to_rgbf(tokens.EDGE), 0.30),
+            edgeColor=(*tokens.hex_to_rgbf(self._edge_color), 0.30),
         )
-        self.wire_item.opts["edgeColor"] = (*tokens.hex_to_rgbf(tokens.EDGE), 0.30)
+        self.wire_item.opts["edgeColor"] = (*tokens.hex_to_rgbf(self._edge_color), 0.30)
         self.selection_item.setVisible(False)
 
         self.setCameraPosition(pos=QVector3D(0.0, 0.0, 0.0), distance=600.0, elevation=24.0, azimuth=-58.0)
@@ -1052,13 +1099,13 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.grid_minor_item.resetTransform()
         self.grid_minor_item.setSize(x=x_size, y=y_size, z=1.0)
         self.grid_minor_item.setSpacing(minor_step, minor_step, 1.0)
-        self.grid_minor_item.setColor(_rgba255(tokens.GRID_MINOR, 0.55))
+        self.grid_minor_item.setColor(_rgba255(self._grid_minor_color, 0.55))
         self.grid_minor_item.translate(cx, cy, 0.0)
 
         self.grid_major_item.resetTransform()
         self.grid_major_item.setSize(x=x_size, y=y_size, z=1.0)
         self.grid_major_item.setSpacing(major_step, major_step, 1.0)
-        self.grid_major_item.setColor(_rgba255(tokens.GRID_MAJOR, 0.75))
+        self.grid_major_item.setColor(_rgba255(self._grid_major_color, 0.75))
         self.grid_major_item.translate(cx, cy, 0.1)
 
     def _fix_render_face_winding(self, faces: np.ndarray) -> np.ndarray:
@@ -1268,7 +1315,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         if self.vertices is None or self.render_faces is None or len(self.render_faces) == 0:
             return np.empty((0, 4), dtype=np.float32)
 
-        mesh_diffuse = np.array(tokens.hex_to_rgbf(tokens.MESH_DIFFUSE), dtype=np.float32)
+        mesh_diffuse = np.array(tokens.hex_to_rgbf(self._mesh_diffuse_color), dtype=np.float32)
         base = np.tile(mesh_diffuse[None, :], (len(self.render_faces), 1)).astype(np.float32, copy=False)
         alpha = np.full((len(base), 1), 0.98, dtype=np.float32)
         return np.concatenate((base.astype(np.float32), alpha), axis=1)
@@ -1352,13 +1399,13 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             shader="shaded",
         )
         self.mesh_item.opts["smooth"] = True
-        self.mesh_item.opts["color"] = (*tokens.hex_to_rgbf(tokens.MESH_DIFFUSE), 1.0)
+        self.mesh_item.opts["color"] = (*tokens.hex_to_rgbf(self._mesh_diffuse_color), 1.0)
         self.mesh_item.setGLOptions("opaque")
         self.mesh_item.setVisible(not self.wireframe_enabled)
 
         wire_vertices = np.ascontiguousarray(self.vertices32, dtype=np.float32)
         edge_alpha = 0.35 if self.wireframe_enabled else 0.30
-        edge_color = (*tokens.hex_to_rgbf(tokens.EDGE), edge_alpha)
+        edge_color = (*tokens.hex_to_rgbf(self._edge_color), edge_alpha)
         self.wire_item.setMeshData(
             vertexes=wire_vertices,
             faces=self.render_faces32,

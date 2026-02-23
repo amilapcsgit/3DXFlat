@@ -15,17 +15,21 @@ from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QFrame,
     QGraphicsPathItem,
     QGraphicsScene,
     QGraphicsView,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QRadioButton,
     QSizePolicy,
     QSlider,
     QSplitter,
@@ -397,6 +401,9 @@ class Flatten2DPreviewWidget(QWidget):
 class RibbonMainWindow(QMainWindow):
     SETTINGS_ORG = "3DXFlat"
     SETTINGS_APP = "RibbonWorkspace"
+    VIEWPORT_THEME_KEY = "viewport/theme"
+    VIEWPORT_THEME_LIGHT = "light"
+    VIEWPORT_THEME_DARK = "dark"
 
     def __init__(self) -> None:
         super().__init__()
@@ -426,6 +433,7 @@ class RibbonMainWindow(QMainWindow):
         self._active_success_cb = None
         self._active_after_message = ""
         self._preview2d_visible = False
+        self._viewport_theme = self._load_viewport_theme_preference()
         self._log_history: List[str] = []
 
         self._build_ui()
@@ -451,6 +459,7 @@ class RibbonMainWindow(QMainWindow):
 
         self.viewport = ThreeDViewportWidget(self.viewport_splitter)
         self.viewport.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.viewport.set_viewport_theme(self._viewport_theme)
         self.preview2d = Flatten2DPreviewWidget(self.viewport_splitter)
         self.preview2d.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.preview2d.setMinimumWidth(tokens.PANEL_MIN_WIDTH)
@@ -495,7 +504,7 @@ class RibbonMainWindow(QMainWindow):
 
         row_h_margin = tokens.SPACE_L
         row_v_margin = tokens.SPACE_S + tokens.SPACE_XS
-        control_spacing = tokens.SPACE_S + tokens.SPACE_XS
+        control_spacing = tokens.SPACE_S
         group_spacing = tokens.SPACE_L
         tb_layout = tb.layout()
         if tb_layout is not None:
@@ -506,46 +515,68 @@ class RibbonMainWindow(QMainWindow):
         self.import_btn.setText("Import 3D")
         self.import_btn.setFixedHeight(tokens.TOOL_BUTTON_HEIGHT)
         self.import_btn.setMinimumWidth(110)
+        self.import_btn.setShortcut("Ctrl+O")
+        self.import_btn.setToolTip("Import 3D model (Ctrl+O)")
         self.import_btn.clicked.connect(self.import_3d_dialog)
         set_button_icon(self.import_btn, "import_model")
         tb.addWidget(self.import_btn)
 
-        spacer = QWidget(self)
-        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        spacer.setMinimumWidth(group_spacing)
-        tb.addWidget(spacer)
+        left_center_spacer = QWidget(self)
+        left_center_spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        left_center_spacer.setMinimumWidth(group_spacing)
+        tb.addWidget(left_center_spacer)
 
         self.run_flatten_btn_top = QToolButton(self)
         self.run_flatten_btn_top.setText("Run Flatten")
         self.run_flatten_btn_top.setObjectName("primaryAction")
         self.run_flatten_btn_top.setFixedHeight(tokens.TOOL_BUTTON_HEIGHT)
         self.run_flatten_btn_top.setMinimumWidth(132)
+        self.run_flatten_btn_top.setShortcut("F5")
+        self.run_flatten_btn_top.setToolTip("Run flatten solver (F5)")
         self.run_flatten_btn_top.clicked.connect(self.run_flatten)
         set_button_icon(self.run_flatten_btn_top, "flatten")
         tb.addWidget(self.run_flatten_btn_top)
 
-        spacer2 = QWidget(self)
-        spacer2.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        spacer2.setMinimumWidth(group_spacing)
-        tb.addWidget(spacer2)
+        self.toggle_2d_btn = QToolButton(self)
+        self.toggle_2d_btn.setText("2D Preview")
+        self.toggle_2d_btn.setCheckable(True)
+        self.toggle_2d_btn.setToolTip("Show/Hide 2D Pattern Preview")
+        self.toggle_2d_btn.toggled.connect(self.toggle_2d_preview)
+        set_button_icon(self.toggle_2d_btn, "isolate")
+        tb.addWidget(self.toggle_2d_btn)
+
+        flatten_output_gap = QWidget(self)
+        flatten_output_gap.setFixedWidth(group_spacing)
+        tb.addWidget(flatten_output_gap)
 
         self.export_btn_top = QToolButton(self)
         self.export_btn_top.setText("Export DXF")
         self.export_btn_top.setFixedHeight(tokens.TOOL_BUTTON_HEIGHT)
         self.export_btn_top.setMinimumWidth(110)
+        self.export_btn_top.setShortcut("Ctrl+E")
+        self.export_btn_top.setToolTip("Export production DXF (Ctrl+E)")
         self.export_btn_top.clicked.connect(self.export_dxf)
         set_button_icon(self.export_btn_top, "export_dxf")
         tb.addWidget(self.export_btn_top)
 
+        center_utility_spacer = QWidget(self)
+        center_utility_spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        center_utility_spacer.setMinimumWidth(group_spacing)
+        tb.addWidget(center_utility_spacer)
+
         self.settings_btn_top = QToolButton(self)
-        self.settings_btn_top.setText("Settings")
+        self.settings_btn_top.setText("")
+        self.settings_btn_top.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.settings_btn_top.setToolTip("Settings")
         self.settings_btn_top.setFixedHeight(tokens.TOOL_BUTTON_HEIGHT)
-        self.settings_btn_top.clicked.connect(self._show_settings_placeholder)
+        self.settings_btn_top.clicked.connect(self._show_settings_dialog)
         set_button_icon(self.settings_btn_top, "settings")
         tb.addWidget(self.settings_btn_top)
 
         self.about_btn_top = QToolButton(self)
-        self.about_btn_top.setText("About")
+        self.about_btn_top.setText("")
+        self.about_btn_top.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.about_btn_top.setToolTip("About 3DXFlat Advanced")
         self.about_btn_top.setFixedHeight(tokens.TOOL_BUTTON_HEIGHT)
         self.about_btn_top.clicked.connect(self._show_about_dialog)
         set_button_icon(self.about_btn_top, "about")
@@ -559,11 +590,16 @@ class RibbonMainWindow(QMainWindow):
         for btn in (
             self.import_btn,
             self.run_flatten_btn_top,
+            self.toggle_2d_btn,
             self.export_btn_top,
-            self.settings_btn_top,
-            self.about_btn_top,
         ):
             btn.setFixedHeight(tokens.TOOL_BUTTON_HEIGHT)
+            btn.setIconSize(QSize(tokens.ICON_SIZE, tokens.ICON_SIZE))
+            btn.setStyleSheet("padding: 8px 12px;")
+
+        for btn in (self.settings_btn_top, self.about_btn_top):
+            btn.setFixedHeight(tokens.TOOL_BUTTON_HEIGHT)
+            btn.setFixedWidth(tokens.TOOL_BUTTON_HEIGHT + tokens.SPACE_M)
             btn.setIconSize(QSize(tokens.ICON_SIZE, tokens.ICON_SIZE))
             btn.setStyleSheet("padding: 8px 12px;")
 
@@ -575,8 +611,7 @@ class RibbonMainWindow(QMainWindow):
 
         secondary_h_margin = tokens.SPACE_M
         secondary_v_margin = tokens.SPACE_S
-        control_spacing = tokens.SPACE_S + tokens.SPACE_XS
-        tight_control_spacing = tokens.SPACE_S
+        control_spacing = tokens.SPACE_S
         group_spacing = tokens.SPACE_L
 
         setup_tab = QWidget(tabs)
@@ -584,19 +619,19 @@ class RibbonMainWindow(QMainWindow):
         setup_layout = QHBoxLayout(setup_tab)
         setup_layout.setContentsMargins(secondary_h_margin, secondary_v_margin, secondary_h_margin, secondary_v_margin)
         setup_layout.setSpacing(control_spacing)
-        self.setup_import_btn = QPushButton("Import Model", setup_tab)
-        self.setup_import_btn.clicked.connect(self.import_3d_dialog)
-        set_button_icon(self.setup_import_btn, "import_model")
         self.check_scale_btn = QPushButton("Check Scale", setup_tab)
         self.check_scale_btn.clicked.connect(self.check_scale)
         set_button_icon(self.check_scale_btn, "frame_selection")
         self.reset_camera_btn = QPushButton("Reset Camera", setup_tab)
         self.reset_camera_btn.clicked.connect(self.viewport.reset_camera)
         set_button_icon(self.reset_camera_btn, "wireframe")
-        self.toggle_2d_btn = QPushButton("Show 2D Preview", setup_tab)
-        self.toggle_2d_btn.setCheckable(True)
-        self.toggle_2d_btn.toggled.connect(self.toggle_2d_preview)
-        set_button_icon(self.toggle_2d_btn, "isolate")
+        self.frame_btn = QPushButton("Frame", setup_tab)
+        self.frame_btn.clicked.connect(self.viewport.reset_camera)
+        set_button_icon(self.frame_btn, "frame_selection")
+        self.wireframe_btn = QPushButton("Wireframe", setup_tab)
+        self.wireframe_btn.setCheckable(True)
+        self.wireframe_btn.toggled.connect(self.viewport.set_wireframe_mode)
+        set_button_icon(self.wireframe_btn, "wireframe")
         self.units_combo = QComboBox(setup_tab)
         self.units_combo.addItems(["mm", "cm", "m", "inch"])
         self.units_combo.setCurrentText("mm")
@@ -604,31 +639,23 @@ class RibbonMainWindow(QMainWindow):
         units_label = QLabel("Units", setup_tab)
         self.scale_label = QLabel("Scale: -", setup_tab)
         self.mesh_info_label = QLabel("Mesh: -", setup_tab)
-        self.settings_strip_btn = QPushButton("Settings", setup_tab)
-        self.settings_strip_btn.clicked.connect(self._show_settings_placeholder)
-        set_button_icon(self.settings_strip_btn, "settings")
-        self.about_strip_btn = QPushButton("About", setup_tab)
-        self.about_strip_btn.clicked.connect(self._show_about_dialog)
-        set_button_icon(self.about_strip_btn, "about")
-        setup_layout.addWidget(self.setup_import_btn)
         setup_layout.addWidget(self.check_scale_btn)
         setup_layout.addWidget(self.reset_camera_btn)
-        setup_layout.addWidget(self.toggle_2d_btn)
+        setup_layout.addSpacing(group_spacing)
+        setup_layout.addWidget(self.frame_btn)
+        setup_layout.addWidget(self.wireframe_btn)
         setup_layout.addSpacing(group_spacing)
         setup_layout.addWidget(units_label)
         setup_layout.addWidget(self.units_combo)
         setup_layout.addWidget(self.scale_label)
         setup_layout.addWidget(self.mesh_info_label, 1)
-        setup_layout.addSpacing(group_spacing)
-        setup_layout.addWidget(self.settings_strip_btn)
-        setup_layout.addWidget(self.about_strip_btn)
         tabs.addTab(setup_tab, "SETUP")
 
         flatten_tab = QWidget(tabs)
         flatten_tab.setFixedHeight(tokens.SECONDARY_STRIP_HEIGHT)
         flatten_layout = QHBoxLayout(flatten_tab)
         flatten_layout.setContentsMargins(secondary_h_margin, secondary_v_margin, secondary_h_margin, secondary_v_margin)
-        flatten_layout.setSpacing(tight_control_spacing)
+        flatten_layout.setSpacing(control_spacing)
         self.smart_select_btn = QPushButton("Smart Select", flatten_tab)
         self.smart_select_btn.setCheckable(True)
         self.smart_select_btn.setChecked(True)
@@ -657,12 +684,7 @@ class RibbonMainWindow(QMainWindow):
         self.show_edges_btn.setCheckable(True)
         self.show_edges_btn.setChecked(True)
         self.show_edges_btn.toggled.connect(self.viewport.set_edges_visible)
-        self.wireframe_btn = QPushButton("Wireframe", flatten_tab)
-        self.wireframe_btn.setCheckable(True)
-        self.wireframe_btn.toggled.connect(self.viewport.set_wireframe_mode)
         self.selected_label = QLabel("Selected: 0", flatten_tab)
-        self.run_flatten_btn = QPushButton("Run Flatten", flatten_tab)
-        self.run_flatten_btn.clicked.connect(self.run_flatten)
         set_button_icon(self.smart_select_btn, "surface_select")
         set_button_icon(self.single_pick_btn, "pin_vertex")
         set_button_icon(self.clear_selection_btn, "clear_selection")
@@ -670,8 +692,6 @@ class RibbonMainWindow(QMainWindow):
         set_button_icon(self.isolate_btn, "isolate")
         set_button_icon(self.technical_mode_btn, "strain_map")
         set_button_icon(self.show_edges_btn, "show_edges")
-        set_button_icon(self.wireframe_btn, "wireframe")
-        set_button_icon(self.run_flatten_btn, "flatten")
         self.quality_gauge = QProgressBar(flatten_tab)
         self.quality_gauge.setRange(0, 100)
         self.quality_gauge.setValue(0)
@@ -688,11 +708,8 @@ class RibbonMainWindow(QMainWindow):
         flatten_layout.addWidget(self.method_combo)
         flatten_layout.addWidget(self.technical_mode_btn)
         flatten_layout.addWidget(self.show_edges_btn)
-        flatten_layout.addWidget(self.wireframe_btn)
         flatten_layout.addWidget(self.selected_label)
         flatten_layout.addStretch(1)
-        flatten_layout.addSpacing(group_spacing)
-        flatten_layout.addWidget(self.run_flatten_btn)
         flatten_layout.addWidget(self.quality_gauge)
         tabs.addTab(flatten_tab, "FLATTEN")
 
@@ -709,32 +726,21 @@ class RibbonMainWindow(QMainWindow):
         self.nest_btn = QPushButton("Nest", production_tab)
         self.nest_btn.clicked.connect(self.run_nesting_job)
         set_button_icon(self.nest_btn, "nest")
-        self.export_btn = QPushButton("Export DXF", production_tab)
-        self.export_btn.clicked.connect(self.export_dxf)
-        set_button_icon(self.export_btn, "export_dxf")
         self.export_path_label = QLabel(self.last_export_path or "(last path not set)", production_tab)
         self.export_path_label.setWordWrap(True)
         production_layout.addWidget(self.seam_label)
         production_layout.addWidget(self.seam_slider, 1)
         production_layout.addSpacing(group_spacing)
         production_layout.addWidget(self.nest_btn)
-        production_layout.addWidget(self.export_btn)
         production_layout.addSpacing(group_spacing)
         production_layout.addWidget(self.export_path_label, 1)
         tabs.addTab(production_tab, "PRODUCTION")
 
         for btn in (
-            self.import_btn,
-            self.run_flatten_btn_top,
-            self.export_btn_top,
-            self.settings_btn_top,
-            self.about_btn_top,
-            self.setup_import_btn,
             self.check_scale_btn,
             self.reset_camera_btn,
-            self.toggle_2d_btn,
-            self.settings_strip_btn,
-            self.about_strip_btn,
+            self.frame_btn,
+            self.wireframe_btn,
             self.smart_select_btn,
             self.single_pick_btn,
             self.clear_selection_btn,
@@ -742,10 +748,7 @@ class RibbonMainWindow(QMainWindow):
             self.isolate_btn,
             self.technical_mode_btn,
             self.show_edges_btn,
-            self.wireframe_btn,
-            self.run_flatten_btn,
             self.nest_btn,
-            self.export_btn,
         ):
             btn.setFixedHeight(tokens.TOOL_BUTTON_HEIGHT)
             btn.setIconSize(QSize(tokens.ICON_SIZE, tokens.ICON_SIZE))
@@ -786,7 +789,7 @@ class RibbonMainWindow(QMainWindow):
         if hasattr(self, "toggle_2d_btn"):
             self.toggle_2d_btn.blockSignals(True)
             self.toggle_2d_btn.setChecked(self._preview2d_visible)
-            self.toggle_2d_btn.setText("Hide 2D Preview" if self._preview2d_visible else "Show 2D Preview")
+            self.toggle_2d_btn.setText("2D Preview")
             self.toggle_2d_btn.blockSignals(False)
 
     def toggle_2d_preview(self, checked: bool | None = None) -> None:
@@ -859,28 +862,7 @@ class RibbonMainWindow(QMainWindow):
             self.status_progress.setValue(0)
             if message:
                 self.statusBar().showMessage(message, 6000)
-
-        enable = not busy
-        self.import_btn.setEnabled(enable)
-        self.setup_import_btn.setEnabled(enable)
-        self.run_flatten_btn.setEnabled(enable)
-        self.run_flatten_btn_top.setEnabled(enable)
-        self.export_btn.setEnabled(enable and self.flatten_completed)
-        self.export_btn_top.setEnabled(enable and self.flatten_completed)
-        self.settings_btn_top.setEnabled(enable)
-        self.about_btn_top.setEnabled(enable)
-        self.settings_strip_btn.setEnabled(enable)
-        self.about_strip_btn.setEnabled(enable)
-        self.nest_btn.setEnabled(enable and self.flatten_completed)
-        self.smart_select_btn.setEnabled(enable)
-        self.single_pick_btn.setEnabled(enable)
-        self.clear_selection_btn.setEnabled(enable)
-        self.invert_selection_btn.setEnabled(enable)
-        self.isolate_btn.setEnabled(enable)
-        self.technical_mode_btn.setEnabled(enable)
-        self.show_edges_btn.setEnabled(enable)
-        self.wireframe_btn.setEnabled(enable)
-        self.toggle_2d_btn.setEnabled(enable)
+        self._refresh_action_states()
 
     def _update_progress(self, value: int) -> None:
         if not self._busy:
@@ -1010,12 +992,81 @@ class RibbonMainWindow(QMainWindow):
         )
         box.exec()
 
-    def _show_settings_placeholder(self) -> None:
-        QMessageBox.information(
-            self,
-            "Settings",
-            "UI settings panel is planned for a later iteration.",
-        )
+    def _load_viewport_theme_preference(self) -> str:
+        raw = str(self._settings.value(self.VIEWPORT_THEME_KEY, "")).strip().lower()
+        if raw in {self.VIEWPORT_THEME_LIGHT, self.VIEWPORT_THEME_DARK}:
+            return raw
+        # Keep current behavior for existing users when setting is missing.
+        return self.VIEWPORT_THEME_LIGHT
+
+    def _apply_viewport_theme(self, theme: str, persist: bool = False) -> None:
+        normalized = str(theme).strip().lower()
+        if normalized not in {self.VIEWPORT_THEME_LIGHT, self.VIEWPORT_THEME_DARK}:
+            normalized = self.VIEWPORT_THEME_LIGHT
+        self._viewport_theme = normalized
+        if hasattr(self, "viewport"):
+            self.viewport.set_viewport_theme(normalized)
+        if persist:
+            self._settings.setValue(self.VIEWPORT_THEME_KEY, normalized)
+
+    def _show_settings_dialog(self) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Settings")
+        dialog.setModal(True)
+        dialog.setMinimumWidth(420)
+
+        root = QVBoxLayout(dialog)
+        root.setContentsMargins(tokens.SPACE_M, tokens.SPACE_M, tokens.SPACE_M, tokens.SPACE_M)
+        root.setSpacing(tokens.SPACE_M)
+
+        tabs = QTabWidget(dialog)
+        appearance_page = QWidget(tabs)
+        appearance_layout = QVBoxLayout(appearance_page)
+        appearance_layout.setContentsMargins(tokens.SPACE_M, tokens.SPACE_M, tokens.SPACE_M, tokens.SPACE_M)
+        appearance_layout.setSpacing(tokens.SPACE_S)
+
+        appearance_group = QGroupBox("Viewport", appearance_page)
+        group_layout = QVBoxLayout(appearance_group)
+        group_layout.setContentsMargins(tokens.SPACE_M, tokens.SPACE_M, tokens.SPACE_M, tokens.SPACE_M)
+        group_layout.setSpacing(tokens.SPACE_S)
+
+        theme_label = QLabel("Viewport Theme", appearance_group)
+        light_radio = QRadioButton("Light Industrial", appearance_group)
+        dark_radio = QRadioButton("Dark Industrial", appearance_group)
+        if self._viewport_theme == self.VIEWPORT_THEME_DARK:
+            dark_radio.setChecked(True)
+        else:
+            light_radio.setChecked(True)
+
+        group_layout.addWidget(theme_label)
+        group_layout.addWidget(light_radio)
+        group_layout.addWidget(dark_radio)
+        appearance_layout.addWidget(appearance_group)
+        appearance_layout.addStretch(1)
+        tabs.addTab(appearance_page, "Appearance")
+        root.addWidget(tabs)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, dialog)
+        root.addWidget(buttons)
+
+        original_theme = self._viewport_theme
+
+        def _selected_theme() -> str:
+            return self.VIEWPORT_THEME_DARK if dark_radio.isChecked() else self.VIEWPORT_THEME_LIGHT
+
+        def _preview_theme() -> None:
+            self._apply_viewport_theme(_selected_theme(), persist=False)
+
+        light_radio.toggled.connect(lambda checked: _preview_theme() if checked else None)
+        dark_radio.toggled.connect(lambda checked: _preview_theme() if checked else None)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._apply_viewport_theme(_selected_theme(), persist=True)
+            self.statusBar().showMessage("Viewport theme updated.", 3000)
+        else:
+            self._apply_viewport_theme(original_theme, persist=False)
 
     def import_3d_dialog(self) -> None:
         if self._busy:
@@ -1242,11 +1293,138 @@ class RibbonMainWindow(QMainWindow):
         self.quality_gauge.setValue(int(round(score)))
         self.quality_gauge.setFormat(f"Quality: {score:.0f}% | area {area_err:.2f}% | strain {mean_strain:.2f}%")
 
+    @staticmethod
+    def _set_control_state(control: QWidget, enabled: bool, enabled_tip: str, disabled_tip: str) -> None:
+        control.setEnabled(bool(enabled))
+        control.setToolTip(enabled_tip if enabled else disabled_tip)
+
+    def _refresh_action_states(self) -> None:
+        has_model = self.loaded_vertices is not None and self.loaded_faces is not None
+        can_interact = not self._busy
+        can_flatten = can_interact and has_model
+        can_preview = can_interact and has_model
+        can_export = can_interact and self.flatten_completed
+        can_nest = can_interact and self.flatten_completed
+        can_view = can_interact and has_model
+        busy_reason = "Wait for the current task to finish."
+        need_model_reason = "Import a model first."
+        need_flatten_reason = busy_reason if not can_interact else "Run flatten first."
+        flatten_reason = busy_reason if not can_interact else need_model_reason
+        view_reason = busy_reason if not can_interact else need_model_reason
+
+        self._set_control_state(
+            self.import_btn,
+            can_interact,
+            "Import 3D model (Ctrl+O)",
+            busy_reason,
+        )
+        self._set_control_state(
+            self.run_flatten_btn_top,
+            can_flatten,
+            "Run flatten solver (F5)",
+            flatten_reason,
+        )
+        self._set_control_state(
+            self.toggle_2d_btn,
+            can_preview,
+            "Show/Hide 2D Pattern Preview",
+            flatten_reason,
+        )
+        self._set_control_state(
+            self.export_btn_top,
+            can_export,
+            "Export production DXF (Ctrl+E)",
+            need_flatten_reason,
+        )
+        self._set_control_state(
+            self.settings_btn_top,
+            can_interact,
+            "Settings",
+            busy_reason,
+        )
+        self._set_control_state(
+            self.about_btn_top,
+            can_interact,
+            "About 3DXFlat Advanced",
+            busy_reason,
+        )
+
+        self._set_control_state(
+            self.check_scale_btn,
+            can_view,
+            "Check scale",
+            view_reason,
+        )
+        self._set_control_state(
+            self.reset_camera_btn,
+            can_view,
+            "Reset camera",
+            view_reason,
+        )
+        self._set_control_state(
+            self.frame_btn,
+            can_view,
+            "Frame model",
+            view_reason,
+        )
+        self._set_control_state(
+            self.wireframe_btn,
+            can_view,
+            "Wireframe view",
+            view_reason,
+        )
+
+        self._set_control_state(
+            self.smart_select_btn,
+            can_flatten,
+            "Smart face selection",
+            flatten_reason,
+        )
+        self._set_control_state(
+            self.single_pick_btn,
+            can_flatten,
+            "Single face pick",
+            flatten_reason,
+        )
+        self._set_control_state(
+            self.clear_selection_btn,
+            can_flatten,
+            "Clear selected faces",
+            flatten_reason,
+        )
+        self._set_control_state(
+            self.invert_selection_btn,
+            can_flatten,
+            "Invert selection",
+            flatten_reason,
+        )
+        self._set_control_state(
+            self.isolate_btn,
+            can_flatten,
+            "Isolate selected region",
+            flatten_reason,
+        )
+        self._set_control_state(
+            self.technical_mode_btn,
+            can_flatten,
+            "Technical shading",
+            flatten_reason,
+        )
+        self._set_control_state(
+            self.show_edges_btn,
+            can_flatten,
+            "Show mesh edges",
+            flatten_reason,
+        )
+        self._set_control_state(
+            self.nest_btn,
+            can_nest,
+            "Build nesting layout",
+            need_flatten_reason,
+        )
+
     def _update_workflow_enablement(self) -> None:
-        can_post = bool(self.flatten_completed) and (not self._busy)
-        self.export_btn.setEnabled(can_post)
-        self.export_btn_top.setEnabled(can_post)
-        self.nest_btn.setEnabled(can_post)
+        self._refresh_action_states()
 
     def _update_status_metadata(self) -> None:
         unit = self.units_combo.currentText() if hasattr(self, "units_combo") else "-"
