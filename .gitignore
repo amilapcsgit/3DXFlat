@@ -12,6 +12,7 @@ flatten_surface/__pycache__/
 
 # Virtual environments
 .venv/
+.venv-build/
 venv/
 env/
 ENV/
@@ -32,6 +33,8 @@ dist/
 # Logs
 logs/
 *.log
+runtimeloh.txt
+build_exe.log
 
 # Testing / cache
 .pytest_cache/
@@ -58,6 +61,7 @@ desktop.ini
 *.bak
 *.old
 *.orig
+.tmp-*/
 
 # IDE project artifacts
 .idea/
