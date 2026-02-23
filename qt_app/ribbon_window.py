@@ -528,7 +528,7 @@ class RibbonMainWindow(QMainWindow):
 
         self.run_flatten_btn_top = QToolButton(self)
         self.run_flatten_btn_top.setText("Run Flatten")
-        self.run_flatten_btn_top.setObjectName("primaryAction")
+        self.run_flatten_btn_top.setObjectName("btnRunFlatten")
         self.run_flatten_btn_top.setFixedHeight(tokens.TOOL_BUTTON_HEIGHT)
         self.run_flatten_btn_top.setMinimumWidth(132)
         self.run_flatten_btn_top.setShortcut("F5")

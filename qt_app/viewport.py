@@ -7,6 +7,7 @@ from typing import Dict, List, Set, Tuple
 import numpy as np
 from OpenGL import GL as ogl
 import pyqtgraph.opengl as gl
+from pyqtgraph.opengl import shaders as gl_shaders
 from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QTimer, QVariantAnimation, Qt, Signal
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QQuaternion, QVector3D, QVector4D, QRegion
 from PySide6.QtWidgets import QGraphicsOpacityEffect, QLabel, QMenu, QSizePolicy, QToolButton, QVBoxLayout, QWidget
@@ -23,6 +24,97 @@ def _rgba255(color_hex: str, alpha: float) -> Tuple[int, int, int, int]:
     r, g, b = _rgb255(color_hex)
     a = max(0, min(255, int(round(alpha * 255.0))))
     return (r, g, b, a)
+
+
+class _CadHeadlightShaderProgram(gl_shaders.ShaderProgram):
+    """Camera-attached headlight shader for GLMeshItem faces.
+
+    This is the Python/pyqtgraph equivalent of the C++ "shader uniform" path in
+    `ui-enhance-v2.md`: camera position is extracted from the inverted view
+    matrix each frame and pushed into the mesh shader before drawing.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            "cad_headlight",
+            [
+                gl_shaders.VertexShader(
+                    """
+                    uniform mat4 u_mvp;
+                    uniform mat4 u_view;
+                    uniform mat3 u_normal;
+                    attribute vec4 a_position;
+                    attribute vec3 a_normal;
+                    attribute vec4 a_color;
+                    varying vec4 v_color;
+                    varying vec3 v_normal;
+                    varying vec3 v_pos_eye;
+                    void main() {
+                        vec4 pos_eye = u_view * a_position;
+                        v_pos_eye = pos_eye.xyz;
+                        v_normal = normalize(u_normal * a_normal);
+                        v_color = a_color;
+                        gl_Position = u_mvp * a_position;
+                    }
+                    """
+                ),
+                gl_shaders.FragmentShader(
+                    """
+                    #ifdef GL_ES
+                    precision mediump float;
+                    #endif
+                    uniform vec3 lightPos;  // passed for parity with C++ headlight snippet
+                    uniform vec3 viewPos;   // passed for parity with C++ headlight snippet
+                    varying vec4 v_color;
+                    varying vec3 v_normal;
+                    varying vec3 v_pos_eye;
+                    void main() {
+                        vec3 N = normalize(v_normal);
+                        vec3 V = normalize(-v_pos_eye);
+                        vec3 L = V; // headlight attached to camera (eye origin in view space)
+                        float diff = max(dot(N, L), 0.0);
+                        float spec = 0.0;
+                        if (diff > 0.0) {
+                            vec3 H = normalize(L + V);
+                            spec = pow(max(dot(N, H), 0.0), 16.0) * 0.20;
+                        }
+                        // `lightPos` / `viewPos` are uploaded every frame. Keep a tiny no-op
+                        // dependency so the uniforms are not trivially optimized in some drivers.
+                        float uniformKeepAlive = 1.0 + 0.0 * length(lightPos - viewPos);
+                        vec3 rgb = v_color.rgb * (0.22 + 0.78 * diff) * uniformKeepAlive + vec3(spec);
+                        gl_FragColor = vec4(rgb, v_color.a);
+                    }
+                    """
+                ),
+            ],
+        )
+        self._camera_world = np.zeros((3,), dtype=np.float32)
+        self._view_matrix = np.identity(4, dtype=np.float32).reshape(-1)
+
+    def set_camera_state(self, camera_world: np.ndarray, view_matrix) -> None:
+        cam = np.asarray(camera_world, dtype=np.float32).reshape(3)
+        self._camera_world = cam.copy()
+        self._view_matrix = np.array(view_matrix.data(), dtype=np.float32)
+
+    def __enter__(self):
+        handle = super().__enter__()
+        try:
+            program = self.program()
+            if program == -1:
+                return handle
+
+            if (loc := ogl.glGetUniformLocation(program, b"u_view")) != -1:
+                ogl.glUniformMatrix4fv(loc, 1, False, self._view_matrix)
+
+            cx, cy, cz = map(float, self._camera_world.tolist())
+            if (loc := ogl.glGetUniformLocation(program, b"lightPos")) != -1:
+                ogl.glUniform3f(loc, cx, cy, cz)
+            if (loc := ogl.glGetUniformLocation(program, b"viewPos")) != -1:
+                ogl.glUniform3f(loc, cx, cy, cz)
+        except Exception:
+            # If a driver drops an optional uniform, keep rendering.
+            pass
+        return handle
 
 
 class OrbitDragButton(QToolButton):
@@ -101,15 +193,18 @@ class _CadMeshItem(gl.GLMeshItem):
         *args,
         polygon_offset_fill: bool = False,
         polygon_offset_line: bool = False,
+        wire_line_width: float | None = None,
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._polygon_offset_fill = bool(polygon_offset_fill)
         self._polygon_offset_line = bool(polygon_offset_line)
+        self._wire_line_width = None if wire_line_width is None else float(wire_line_width)
 
     def paint(self) -> None:
         fill_offset_enabled = False
         line_offset_enabled = False
+        line_width_overridden = False
         try:
             ogl.glDisable(ogl.GL_LIGHTING)
             ogl.glDisable(ogl.GL_COLOR_MATERIAL)
@@ -124,12 +219,17 @@ class _CadMeshItem(gl.GLMeshItem):
                 ogl.glEnable(ogl.GL_POLYGON_OFFSET_LINE)
                 ogl.glPolygonOffset(-1.0, -1.0)
                 line_offset_enabled = True
+            if self._wire_line_width is not None and bool(self.opts.get("drawEdges")):
+                ogl.glLineWidth(self._wire_line_width)
+                line_width_overridden = True
         except Exception:
             pass
         try:
             super().paint()
         finally:
             try:
+                if line_width_overridden:
+                    ogl.glLineWidth(1.0)
                 if line_offset_enabled:
                     ogl.glDisable(ogl.GL_POLYGON_OFFSET_LINE)
                 if fill_offset_enabled:
@@ -165,9 +265,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.setStyleSheet(
             """
             QOpenGLWidget#ThreeDViewportWidget {
-                border: none;
                 outline: none;
-                background-color: transparent;
             }
             """
         )
@@ -215,6 +313,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._source_vertex_colors: np.ndarray | None = None
         self._source_face_colors: np.ndarray | None = None
         self._render_mesh_is_volume = False
+        self._headlight_shader = _CadHeadlightShaderProgram()
 
         self._pending_hover_pos: Tuple[float, float] | None = None
         self._mesh_center = np.zeros(3, dtype=np.float64)
@@ -234,7 +333,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             drawFaces=True,
             drawEdges=False,
             smooth=True,
-            shader="shaded",
+            shader=self._headlight_shader,
             polygon_offset_fill=True,
         )
         self.mesh_item.opts["smooth"] = True
@@ -247,8 +346,9 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             drawFaces=False,
             drawEdges=True,
             smooth=False,
-            shader="shaded",
+            shader=None,
             polygon_offset_line=True,
+            wire_line_width=2.0,
         )
         self.wire_item.opts["edgeColor"] = (*tokens.hex_to_rgbf(self._edge_color), 0.30)
         self.wire_item.setGLOptions("translucent")
@@ -259,7 +359,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             drawFaces=True,
             drawEdges=False,
             smooth=True,
-            shader="shaded",
+            shader=self._headlight_shader,
             glOptions="translucent",
         )
         self.selection_item.setDepthValue(2)
@@ -306,6 +406,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
 
     def paintGL(self) -> None:  # noqa: N802
         self._prepare_shader_pipeline_state()
+        self._update_headlight_uniform_state()
         super().paintGL()
         self._prepare_shader_pipeline_state()
         self._update_floating_orbit_button_position()
@@ -316,6 +417,22 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             ogl.glDisable(ogl.GL_LIGHT0)
             ogl.glDisable(ogl.GL_COLOR_MATERIAL)
             ogl.glDisable(ogl.GL_NORMALIZE)
+        except Exception:
+            pass
+
+    def _update_headlight_uniform_state(self) -> None:
+        # Modern OpenGL / shader path (ui-enhance-v2.md): derive camera world
+        # position from the inverted view matrix and upload as light/view uniforms.
+        try:
+            view_matrix = self.viewMatrix()
+            inv_view, ok = view_matrix.inverted()
+            if not ok:
+                return
+            cam = inv_view.column(3).toVector3D()
+            self._headlight_shader.set_camera_state(
+                np.array([float(cam.x()), float(cam.y()), float(cam.z())], dtype=np.float32),
+                view_matrix,
+            )
         except Exception:
             pass
 
@@ -771,6 +888,12 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.opts["distance"] = float(np.clip(self.opts["distance"] * factor, 1e-3, 1e12))
         self.update()
 
+    def _bbox_center(self, vertices: np.ndarray) -> np.ndarray:
+        verts = np.asarray(vertices, dtype=np.float64)
+        if verts.ndim != 2 or verts.shape[1] != 3 or len(verts) == 0:
+            return np.zeros(3, dtype=np.float64)
+        return (verts.min(axis=0) + verts.max(axis=0)) * 0.5
+
     def clear_view(self) -> None:
         self.vertices = None
         self.vertices32 = None
@@ -839,7 +962,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
     ) -> None:
         self.mesh_name = name
         self.vertices = np.asarray(vertices, dtype=np.float64)
-        self._mesh_center = self.vertices.mean(axis=0)
+        self._mesh_center = self._bbox_center(self.vertices)
         self.vertices32 = np.ascontiguousarray(self.vertices.astype(np.float32, copy=False))
         raw_render_faces = np.asarray(render_faces, dtype=np.int64)
         self.render_faces = self._fix_render_face_winding(raw_render_faces)
@@ -904,7 +1027,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             return
         mins = self.vertices.min(axis=0)
         maxs = self.vertices.max(axis=0)
-        center = (mins + maxs) * 0.5
+        center = self._bbox_center(self.vertices)
         self._mesh_center = center
         span_xyz = maxs - mins
         span = float(max(np.max(span_xyz), np.linalg.norm(span_xyz), 1.0))
@@ -930,7 +1053,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             return
         mins = self.vertices.min(axis=0)
         maxs = self.vertices.max(axis=0)
-        center = (mins + maxs) * 0.5
+        center = self._bbox_center(self.vertices)
         self._mesh_center = center
         dist = max(float(np.max(maxs - mins)) * 2.2, 20.0)
 

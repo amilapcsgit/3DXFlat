@@ -41,7 +41,7 @@ def set_button_icon(
     color: str | None = None,
 ) -> None:
     icon_color = color
-    if icon_color is None and button.objectName() == "primaryAction":
+    if icon_color is None and button.objectName() in {"primaryAction", "btnRunFlatten"}:
         icon_color = tokens.ON_ACCENT
     icon = load_icon(icon_name, size=size, color=icon_color)
     if icon.isNull():
