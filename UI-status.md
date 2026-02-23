@@ -28,6 +28,8 @@ The recent work maps the `ui-enhance-v2.md` C++ `QOpenGLWidget` instructions to 
 
 ## What Was Changed (This Pass)
 
+This file was updated again after an additional **Phase 1 viewport pass** (navigation + shading readability) on branch `ui-enhance`.
+
 ### 1. OpenGL Camera Orbit Fix (model center pivot)
 
 Implemented in `qt_app/viewport.py` (Python equivalent of the C++ `modelCenter` pivot logic):
@@ -64,6 +66,30 @@ Result:
 
 - Face shading stays camera-attached (headlight behavior)
 - Wireframe is thicker and less likely to visually disappear into the mesh
+
+### 2b. Phase 1 Viewport Navigation + Shading Readability (Follow-up)
+
+Additional work in `qt_app/viewport.py` to address the remaining "glitchy/unintuitive" feel:
+
+- Switched the viewport camera controller from pyqtgraph quaternion orbit to **Euler orbit** (`rotationMethod="euler"`)
+  - prevents accumulated roll/"tilted universe" feeling
+  - produces a more CAD-like Z-up orbit behavior
+- Reworked view presets (`FRONT/BACK/LEFT/RIGHT/TOP/BOTTOM`) to use explicit `elevation`/`azimuth`
+  - keeps presets aligned with the Euler controller
+- Added **double-click pivot** behavior
+  - double-clicking a visible face sets the orbit pivot to that face centroid (pick-point pivot)
+- Added a **subtle gradient + vignette viewport overlay**
+  - improves depth perception and silhouette separation in dark mode
+- Upgraded the custom headlight shader to a **two-tone CAD-style readable shader**
+  - hemisphere ambient + rim highlight + specular
+- Fixed an important regression: `_update_mesh_visuals()` was resetting the mesh shader back to `"shaded"` on every refresh
+  - this prevented the custom headlight shader from taking effect consistently
+
+Result:
+
+- Orbit feels more stable and CAD-like
+- Pick-point orbit pivot is now available (double-click)
+- Mesh remains more readable in dark mode and under rotation
 
 ### 3. Qt Stylesheet Application + Primary Button Object Name
 
@@ -132,6 +158,10 @@ Key rendering flow:
 5. Framing selected region can still change orbit target intentionally.
    - `ThreeDViewportWidget._frame_selected_region()` sets camera center to the framed region.
    - This is useful behavior, but it means the orbit pivot may temporarily move away from whole-model center after a frame-selection action.
+
+6. The gradient/vignette is currently a post-paint overlay.
+   - It improves visual depth, but it is not a true OpenGL background gradient pass yet.
+   - A future shader/fullscreen-pass implementation would be cleaner and more controllable.
 
 ## Validation Performed
 

@@ -9,7 +9,7 @@ from OpenGL import GL as ogl
 import pyqtgraph.opengl as gl
 from pyqtgraph.opengl import shaders as gl_shaders
 from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QTimer, QVariantAnimation, Qt, Signal
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QQuaternion, QVector3D, QVector4D, QRegion
+from PySide6.QtGui import QColor, QLinearGradient, QPainter, QRadialGradient, QVector3D, QVector4D, QRegion
 from PySide6.QtWidgets import QGraphicsOpacityEffect, QLabel, QMenu, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 import trimesh
 from ui.icon_loader import set_button_icon
@@ -73,15 +73,23 @@ class _CadHeadlightShaderProgram(gl_shaders.ShaderProgram):
                         vec3 V = normalize(-v_pos_eye);
                         vec3 L = V; // headlight attached to camera (eye origin in view space)
                         float diff = max(dot(N, L), 0.0);
+                        // CAD-like two-tone / matcap-ish readability: hemisphere ambient + rim
+                        // keeps topology visible without fully realistic lighting.
+                        float hemi = clamp(0.5 + 0.5 * N.z, 0.0, 1.0);
+                        vec3 skyTint = vec3(0.84, 0.90, 0.98);
+                        vec3 groundTint = vec3(0.18, 0.21, 0.26);
+                        vec3 hemiAmbient = mix(groundTint, skyTint, hemi);
+                        float rim = pow(clamp(1.0 - max(dot(N, V), 0.0), 0.0, 1.0), 2.4);
                         float spec = 0.0;
                         if (diff > 0.0) {
                             vec3 H = normalize(L + V);
-                            spec = pow(max(dot(N, H), 0.0), 16.0) * 0.20;
+                            spec = pow(max(dot(N, H), 0.0), 18.0) * 0.22;
                         }
                         // `lightPos` / `viewPos` are uploaded every frame. Keep a tiny no-op
                         // dependency so the uniforms are not trivially optimized in some drivers.
                         float uniformKeepAlive = 1.0 + 0.0 * length(lightPos - viewPos);
-                        vec3 rgb = v_color.rgb * (0.22 + 0.78 * diff) * uniformKeepAlive + vec3(spec);
+                        float tone = 0.22 + 0.55 * diff + 0.08 * step(0.35, diff);
+                        vec3 rgb = (v_color.rgb * tone + hemiAmbient * 0.12 + vec3(rim * 0.14) + vec3(spec)) * uniformKeepAlive;
                         gl_FragColor = vec4(rgb, v_color.a);
                     }
                     """
@@ -246,7 +254,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
     splitToggleRequested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent, rotationMethod="quaternion")
+        # Use euler mode for a CAD-style Z-up orbit with no accumulated roll.
+        super().__init__(parent, rotationMethod="euler")
         self.setObjectName("ThreeDViewportWidget")
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMouseTracking(True)
@@ -314,6 +323,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._source_face_colors: np.ndarray | None = None
         self._render_mesh_is_volume = False
         self._headlight_shader = _CadHeadlightShaderProgram()
+        self._orbit_sensitivity = 0.65
+        self._orbit_sensitivity_fine = 0.35
 
         self._pending_hover_pos: Tuple[float, float] | None = None
         self._mesh_center = np.zeros(3, dtype=np.float64)
@@ -411,6 +422,14 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._prepare_shader_pipeline_state()
         self._update_floating_orbit_button_position()
 
+    def paintEvent(self, event) -> None:  # noqa: N802
+        super().paintEvent(event)
+        # A subtle post-pass gradient/vignette improves depth perception in dark mode.
+        try:
+            self._paint_soft_background_gradient()
+        except Exception:
+            pass
+
     def _prepare_shader_pipeline_state(self) -> None:
         try:
             ogl.glDisable(ogl.GL_LIGHTING)
@@ -437,12 +456,51 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             pass
 
     def _paint_soft_background_gradient(self) -> None:
+        if self.width() < 2 or self.height() < 2:
+            return
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, False)
-        gradient = QLinearGradient(0.0, 0.0, 0.0, float(max(1, self.height())))
-        gradient.setColorAt(0.0, QColor(self._vp_bg_color))
-        gradient.setColorAt(1.0, QColor(self._vp_bg_color))
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        h = float(max(1, self.height()))
+        w = float(max(1, self.width()))
+        if self._viewport_theme == "dark":
+            top = QColor("#2C2C2C")
+            mid = QColor("#22262C")
+            bot = QColor("#1A1A1A")
+            top.setAlpha(42)
+            mid.setAlpha(14)
+            bot.setAlpha(70)
+        else:
+            top = QColor("#F6F8FB")
+            mid = QColor("#EEF2F7")
+            bot = QColor("#E4EAF2")
+            top.setAlpha(28)
+            mid.setAlpha(10)
+            bot.setAlpha(36)
+
+        gradient = QLinearGradient(0.0, 0.0, 0.0, h)
+        gradient.setColorAt(0.0, top)
+        gradient.setColorAt(0.55, mid)
+        gradient.setColorAt(1.0, bot)
         painter.fillRect(self.rect(), gradient)
+
+        # Center lift + edge vignette to separate mesh silhouette from the background.
+        cx = w * 0.5
+        cy = h * 0.46
+        r = max(w, h) * 0.85
+        center_glow = QRadialGradient(cx, cy, r)
+        glow_col = QColor("#6EA8FF" if self._viewport_theme == "dark" else "#B8D6FF")
+        glow_col.setAlpha(22 if self._viewport_theme == "dark" else 16)
+        edge_col = QColor(0, 0, 0, 0)
+        center_glow.setColorAt(0.0, glow_col)
+        center_glow.setColorAt(0.65, QColor(0, 0, 0, 0))
+        center_glow.setColorAt(1.0, edge_col)
+        painter.fillRect(self.rect(), center_glow)
+
+        vignette = QRadialGradient(w * 0.5, h * 0.52, max(w, h) * 0.95)
+        vignette.setColorAt(0.60, QColor(0, 0, 0, 0))
+        vignette.setColorAt(1.0, QColor(0, 0, 0, 42 if self._viewport_theme == "dark" else 24))
+        painter.fillRect(self.rect(), vignette)
         painter.end()
 
     def _apply_viewport_palette(self, theme: str) -> None:
@@ -545,7 +603,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._nav_last = cur
 
         if self.is_rotating and self._active_nav_mode == "orbit":
-            self.orbit(-dx, dy)
+            sens = self._orbit_sensitivity_fine if (event.modifiers() & Qt.KeyboardModifier.ShiftModifier) else self._orbit_sensitivity
+            self.orbit(-dx * sens, dy * sens)
             self._on_camera_event()
             event.accept()
             return
@@ -572,6 +631,18 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         if event.buttons() == Qt.MouseButton.NoButton:
             self._schedule_hover_pick(cur[0], cur[1])
         super().mouseMoveEvent(event)
+
+    def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton and self.vertices is not None and self.pick_faces is not None:
+            hit = self._raycast_face(float(event.position().x()), float(event.position().y()))
+            if hit is not None and 0 <= int(hit) < len(self.pick_faces):
+                tri = self.vertices[self.pick_faces[int(hit)]]
+                pivot = np.mean(tri, axis=0)
+                self.setCameraPosition(pos=QVector3D(float(pivot[0]), float(pivot[1]), float(pivot[2])))
+                self._on_camera_event()
+                event.accept()
+                return
+        super().mouseDoubleClickEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.MiddleButton and self.is_rotating:
@@ -786,7 +857,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         dx = float(global_pos.x() - self._floating_orbit_last_pos.x())
         dy = float(global_pos.y() - self._floating_orbit_last_pos.y())
         self._floating_orbit_last_pos = QPointF(global_pos)
-        self.orbit(-dx, dy)
+        self.orbit(-dx * self._orbit_sensitivity, dy * self._orbit_sensitivity)
         self._on_camera_event()
 
     def _on_floating_orbit_drag_finished(self) -> None:
@@ -826,7 +897,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         if self._floating_orbit_last_pos is not None:
             return
 
-        anchor = self.mapFrom3D(self._mesh_center)
+        center = self.opts.get("center", QVector3D(float(self._mesh_center[0]), float(self._mesh_center[1]), float(self._mesh_center[2])))
+        anchor = self.mapFrom3D(center)
         btn = self.floating_orbit_btn
         margin = tokens.SPACE_S
         x = anchor.x() - (btn.width() // 2)
@@ -1058,25 +1130,23 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         dist = max(float(np.max(maxs - mins)) * 2.2, 20.0)
 
         mapping = {
-            "FRONT": ((0.0, -1.0, 0.0), (0.0, 0.0, 1.0)),
-            "BACK": ((0.0, 1.0, 0.0), (0.0, 0.0, 1.0)),
-            "LEFT": ((-1.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
-            "RIGHT": ((1.0, 0.0, 0.0), (0.0, 0.0, 1.0)),
-            "TOP": ((0.0, 0.0, 1.0), (0.0, 1.0, 0.0)),
-            "BOTTOM": ((0.0, 0.0, -1.0), (0.0, -1.0, 0.0)),
+            "FRONT": (0.0, -90.0, (0.0, 0.0, 1.0)),
+            "BACK": (0.0, 90.0, (0.0, 0.0, 1.0)),
+            "LEFT": (0.0, 180.0, (0.0, 0.0, 1.0)),
+            "RIGHT": (0.0, 0.0, (0.0, 0.0, 1.0)),
+            "TOP": (90.0, 0.0, (0.0, 1.0, 0.0)),
+            "BOTTOM": (-90.0, 0.0, (0.0, -1.0, 0.0)),
         }
         if preset not in mapping:
             return
 
-        direction, up = mapping[preset]
-        dir_vec = QVector3D(float(direction[0]), float(direction[1]), float(direction[2]))
-        up_vec = QVector3D(float(up[0]), float(up[1]), float(up[2]))
-        rot = QQuaternion.fromDirection(-dir_vec, up_vec)
+        elev, azim, up = mapping[preset]
 
         self.setCameraPosition(
             pos=QVector3D(float(center[0]), float(center[1]), float(center[2])),
             distance=dist,
-            rotation=rot,
+            elevation=elev,
+            azimuth=azim,
         )
         self.opts["fov"] = 40.0
         self._camera_up = up
@@ -1501,7 +1571,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             if 0 <= self._hover_face < len(self._pick_to_render):
                 ridx_hover = int(self._pick_to_render[self._hover_face])
                 if ridx_hover >= 0 and self._hover_face not in self.selected_faces:
-                    colors[ridx_hover] = np.array([self._accent_rgb[0], self._accent_rgb[1], self._accent_rgb[2], 0.40], dtype=np.float32)
+                    colors[ridx_hover] = np.array([self._accent_rgb[0], self._accent_rgb[1], self._accent_rgb[2], 0.55], dtype=np.float32)
 
         if self._pick_to_render is not None and self.selected_faces:
             idx = np.asarray(sorted(self.selected_faces), dtype=np.int64)
@@ -1509,7 +1579,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             ridx = self._pick_to_render[idx]
             ridx = ridx[ridx >= 0]
             if len(ridx):
-                colors[ridx] = np.array([self._accent_rgb[0], self._accent_rgb[1], self._accent_rgb[2], 0.70], dtype=np.float32)
+                colors[ridx] = np.array([self._accent_rgb[0], self._accent_rgb[1], self._accent_rgb[2], 0.78], dtype=np.float32)
 
         vertex_colors = self._face_colors_to_vertex_colors(colors)
 
@@ -1519,7 +1589,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             vertexColors=vertex_colors,
             smooth=True,
             drawEdges=False,
-            shader="shaded",
+            shader=self._headlight_shader,
         )
         self.mesh_item.opts["smooth"] = True
         self.mesh_item.opts["color"] = (*tokens.hex_to_rgbf(self._mesh_diffuse_color), 1.0)
@@ -1546,7 +1616,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             if len(idx):
                 sel_faces = np.ascontiguousarray(self.pick_faces[idx].astype(np.int32, copy=False))
                 sel_colors = np.tile(
-                    np.array([self._accent_rgb[0], self._accent_rgb[1], self._accent_rgb[2], 0.70], dtype=np.float32),
+                    np.array([self._accent_rgb[0], self._accent_rgb[1], self._accent_rgb[2], 0.82], dtype=np.float32),
                     (len(sel_faces), 1),
                 )
                 self.selection_item.setMeshData(
@@ -1555,7 +1625,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                     faceColors=sel_colors,
                     smooth=True,
                     drawEdges=False,
-                    shader="shaded",
+                    shader=self._headlight_shader,
                 )
                 self.selection_item.setVisible(True)
             else:
