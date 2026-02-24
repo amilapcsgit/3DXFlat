@@ -16,6 +16,9 @@ The recent work maps the `ui-enhance-v2.md` C++ `QOpenGLWidget` instructions to 
 - `qt_app/ribbon_window.py`
   - Main ribbon-style window shell (top toolbar + tabs + viewport + side panels)
   - Current ribbon follows a singleton-action rule (primary actions live in ribbon tabs)
+- `qt_app/unified_command_bar.py`
+  - Unified two-row command bar widget (VIEW / SELECT / FLATTEN / OUTPUT groups)
+  - Hosts the active command controls in PHASE 2 (icon + label buttons + fields)
 - `qt_app/viewport.py`
   - `ThreeDViewportWidget` (3D OpenGL viewport)
   - Mesh load/update, camera orbit/pan/zoom, selection, wireframe/edge rendering
@@ -355,6 +358,62 @@ Follow-up note for future agents:
   - or using a true 2-row compact grid only for advanced/rare actions
   - avoid reverting all secondary actions to icon-only unless usability is revalidated with screenshots/runtime testing
 
+### 5. PHASE 2 Visual Parity Mode (Unified Command Bar Recovery)
+
+This phase replaces the old ribbon/tab workflow with a single always-visible command surface.
+
+Implemented in:
+
+- `qt_app/unified_command_bar.py`
+- `qt_app/ribbon_window.py`
+- `ui/theme/industrial_cad.qss`
+
+Changes:
+
+- Added `UnifiedCommandBar(QWidget)` with grouped cards:
+  - `VIEW`
+  - `SELECT`
+  - `FLATTEN`
+  - `OUTPUT`
+- All command bar action controls are **icon + label** `QPushButton` widgets
+  - no icon-only command buttons in the unified bar
+- Object names added for QSS styling:
+  - `CommandBar`
+  - `GroupCard`
+  - `GroupTitle`
+  - `PrimaryButton`
+  - `SecondaryButton`
+  - `StandardButton`
+  - `ToggleButton`
+  - `Field`
+- Industrial icon set integration by filename (`ui/icons/Industrial_SVG_Set_v1`)
+  - `UnifiedCommandBar` loads icons using the phase2 `icon_map` filenames
+  - `orbit.svg` (32x32 viewBox) is explicitly preloaded at 32px for render-path validation
+- Active UI build path changed in `RibbonMainWindow._build_ui()`:
+  - inserts **one** `UnifiedCommandBar` at the top of the central layout
+  - removes the tab ribbon from the active layout path
+  - no active top-toolbar construction path
+- Existing UI handlers preserved via compatibility aliases in `RibbonMainWindow`
+  - unified-bar controls are mapped to historical attribute names (e.g. `toggle_2d_btn`, `export_btn_top`, `run_flatten_btn_tab`, etc.)
+  - allowed signal wiring to reuse existing methods without algorithm changes
+- PH2 callback wiring (`UI-only`) added
+  - import/reset/wireframe/grid/select/2D-preview/flatten/nest/export/settings/about wired to existing handlers
+  - no flatten, nesting, DXF, or shader logic changes
+- Theme styling (tokenized QSS) added for unified command bar
+  - `Run Flatten` is the `PrimaryButton` (accent CTA)
+  - `Export DXF` is the `SecondaryButton` (emphasized but less dominant)
+  - command-bar spacing/button heights follow the 8px-grid spec direction
+- Legacy duplicate UI builders disabled (cleanup)
+  - `_build_top_toolbar()` stubbed/disabled in PH2 mode
+  - `_build_ribbon()` stubbed/disabled in PH2 mode
+
+Result:
+
+- No `Setup / Flatten / Production` tab switching in the active UI path
+- One unified command bar is the primary command surface
+- Duplicate top-right controls are removed from the active layout path
+- Command discoverability is improved because all command bar controls are labeled
+
 ## How the 3D Viewport Currently Works
 
 `ThreeDViewportWidget` (`qt_app/viewport.py`) extends `pyqtgraph.opengl.GLViewWidget` and manages:
@@ -362,6 +421,7 @@ Follow-up note for future agents:
 - Camera navigation:
   - orbit / pan / zoom (mouse + HUD buttons)
   - current default orbit uses a **turntable model-rotation path** (mesh rotates, world grid stays fixed)
+  - grid visibility is now also controllable from the PHASE 2 unified command bar (`Grid` toggle)
   - visible HUD controls are currently: **Fit**, **Orbit**, **Toggle 2D Preview**
   - pan/zoom override toggle objects still exist in code but are hidden from the visible HUD (compatibility holdover)
 - Mesh rendering:
@@ -426,11 +486,18 @@ Key rendering flow:
    - Secondary ribbon controls are intentionally labeled again (text + icon) for usability.
    - At 125-150% DPI, some groups may require shorter labels or overflow grouping to avoid crowding.
 
+10. PHASE 2 uses compatibility aliases in `RibbonMainWindow`.
+   - Unified command bar controls are assigned to legacy attribute names to minimize risk.
+   - A future cleanup can remove more legacy naming once the unified bar stabilizes.
+
 ## Validation Performed
 
 - Latest follow-up pass syntax checks:
   - `python -m py_compile qt_app/ribbon_window.py`
   - `python -m py_compile qt_app/viewport.py`
+- PHASE 2 step-gate syntax checks:
+  - `python -m py_compile qt_app/unified_command_bar.py`
+  - `python -m py_compile qt_app/ribbon_window.py`
 - Python syntax checks passed:
   - `qt_app/viewport.py`
   - `qt_app/ribbon_window.py`
@@ -452,3 +519,6 @@ Key rendering flow:
 9. Double-click a face and confirm the orbit pivot does **not** jump to the picked face centroid.
 10. Press `Z` / frame selected region and confirm distance changes while orbit pivot remains at bbox center.
 11. Verify dark-mode wireframe line thickness increases to 2.5 and remains visible during rotation.
+12. Verify no `Setup / Flatten / Production` tabs are visible and only one unified command bar is present.
+13. Verify every command bar action is icon + label (no icon-only commands).
+14. Verify `Run Flatten` is the primary CTA and `Export DXF` is secondary in the unified bar.
