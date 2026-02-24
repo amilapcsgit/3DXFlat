@@ -504,7 +504,7 @@ class RibbonMainWindow(QMainWindow):
         header_layout.setSpacing(0)
 
         self.row1_system_bar = QFrame(self.header_area)
-        self.row1_system_bar.setObjectName("Row1SystemBar")
+        self.row1_system_bar.setObjectName("row1SystemBar")
         self.row1_system_bar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.row1_system_bar.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self.row1_system_bar.setAutoFillBackground(True)
@@ -534,23 +534,12 @@ class RibbonMainWindow(QMainWindow):
         row1_layout.addWidget(self.system_settings_btn)
         row1_layout.addWidget(self.system_about_btn)
 
-        self.row2_command_bar = QFrame(self.header_area)
-        self.row2_command_bar.setObjectName("Row2CommandBar")
-        self.row2_command_bar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.row2_command_bar.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        self.row2_command_bar.setAutoFillBackground(True)
-        self.row2_command_bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        row2_layout = QVBoxLayout(self.row2_command_bar)
-        row2_layout.setContentsMargins(0, 0, 0, 0)
-        row2_layout.setSpacing(0)
-
-        self.unified_command_bar = UnifiedCommandBar(self.row2_command_bar)
-        row2_layout.addWidget(self.unified_command_bar, 0)
-        self.row2_command_bar.setFixedHeight(self.unified_command_bar.height())
+        self.unified_command_bar = UnifiedCommandBar(self.header_area)
+        self.unified_command_bar.setObjectName("row2CommandBar")
 
         header_layout.addWidget(self.row1_system_bar, 0)
-        header_layout.addWidget(self.row2_command_bar, 0)
-        self.header_area.setFixedHeight(self.row1_system_bar.height() + self.row2_command_bar.height())
+        header_layout.addWidget(self.unified_command_bar, 0)
+        self.header_area.setFixedHeight(self.row1_system_bar.height() + self.unified_command_bar.height())
         self.ribbon = None
 
         # Compatibility aliases (callbacks are wired in PH2-S3).
