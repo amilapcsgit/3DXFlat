@@ -935,6 +935,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.hud_orbit_btn.setFixedSize(48, 48)
         self.hud_orbit_btn.setIconSize(QSize(32, 32))
         self.hud_orbit_btn.toggled.connect(self._toggle_orbit_mode)
+        # PH2-VP-S5: use the industrial SVG file icon directly (no Base64 HUD orbit path).
         orbit_icon = load_icon_svg_file("ui/icons/Industrial_SVG_Set_v1/orbit.svg", size=32, color=tokens.TEXT_PRIMARY)
         if not orbit_icon.isNull():
             self.hud_orbit_btn.setIcon(orbit_icon)
@@ -971,6 +972,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             """
         )
         self.floating_orbit_btn.setIconSize(QSize(32, 32))
+        # Keep the floating orbit drag button on the same file-based icon source.
         floating_orbit_icon = load_icon_svg_file("ui/icons/Industrial_SVG_Set_v1/orbit.svg", size=32, color=tokens.ACCENT)
         if not floating_orbit_icon.isNull():
             self.floating_orbit_btn.setIcon(floating_orbit_icon)

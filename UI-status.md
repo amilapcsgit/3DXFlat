@@ -601,10 +601,11 @@ Known follow-up items (next phase):
 Short changelog note:
 
 - Added **two-row header zoning** in `RibbonMainWindow`:
-  - `headerArea` (opaque container) with `Row1SystemBar` + `Row2CommandBar`
+  - `headerArea` (opaque container) with `row1SystemBar` + `row2CommandBar`
 - Added **header bottom border separation** (`1px`) via QSS on `headerArea`
 - Moved `Settings` / `About` into the thin system bar (Row1) to reduce command-row clutter
 - Kept `UnifiedCommandBar` as the only workflow command surface in Row2 (no tabs / no second toolbar)
+  - current PH2-VP target sizing uses a fixed `88px` row2 command strip with two internal `40px` lines
 - Orbit HUD icon now loads from file path `ui/icons/Industrial_SVG_Set_v1/orbit.svg` (no Base64 path for HUD orbit)
 
 ## How the 3D Viewport Currently Works
