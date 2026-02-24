@@ -223,6 +223,7 @@ class UnifiedCommandBar(QWidget):
         row_b.setSpacing(8)
 
         self.btn_smart_select = self._button("Smart Select", "Smart Select", kind="toggle", checkable=True)
+        self.btn_smart_select.setChecked(True)
         self.btn_single_pick = self._button("Single Pick", "Single Pick", kind="toggle", checkable=True)
         self.btn_clear = self._button("Clear", "Clear")
         self.btn_invert = self._button("Invert", "Invert")

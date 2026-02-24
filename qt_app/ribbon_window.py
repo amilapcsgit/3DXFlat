@@ -443,7 +443,6 @@ class RibbonMainWindow(QMainWindow):
         self.log("Ribbon UI initialized.")
 
     def _build_ui(self) -> None:
-        self._build_top_toolbar()
         self._build_status_progress()
 
         central = QWidget(self)
@@ -492,14 +491,50 @@ class RibbonMainWindow(QMainWindow):
         self._position_viewcube()
         self._set_2d_preview_visible(False)
 
-        # PH2-S1 placeholder insertion: unified command bar is visible at top (no callback wiring yet).
+        # PH2-S2: unified command bar becomes the only visible command surface.
         self.unified_command_bar = UnifiedCommandBar(central)
-        self.ribbon = self._build_ribbon()
-        self.ribbon.setObjectName("SecondaryRibbon")
-        strip_h = int(getattr(self, "_phase3_ribbon_strip_height", tokens.SECONDARY_STRIP_HEIGHT))
-        self.ribbon.setFixedHeight(strip_h + tokens.TABS_HEIGHT)
+        self.ribbon = None
+
+        # Compatibility aliases (callbacks are wired in PH2-S3).
+        bar = self.unified_command_bar
+        self.import_btn_setup = bar.btn_import_model
+        self.reset_camera_btn = bar.btn_reset_view
+        self.wireframe_btn = bar.btn_wireframe
+        self.grid_btn = bar.btn_grid
+
+        self.smart_select_btn = bar.btn_smart_select
+        self.single_pick_btn = bar.btn_single_pick
+        self.clear_selection_btn = bar.btn_clear
+        self.invert_selection_btn = bar.btn_invert
+        self.isolate_btn = bar.btn_isolate
+        self.toggle_2d_btn = bar.btn_toggle_2d
+
+        self.method_combo = bar.method_combo
+        self.technical_mode_btn = bar.btn_technical
+        self.show_edges_btn = bar.btn_edges
+        self.selected_label = bar.selected_label
+        self.run_flatten_btn_tab = bar.btn_run_flatten
+        self.run_flatten_btn_tab.setObjectName("btnRunFlatten")
+        self.quality_gauge = bar.quality_gauge
+
+        self.seam_slider = bar.seam_slider
+        self.seam_label = bar.seam_label
+        self.nest_btn = bar.btn_nest
+        self.export_btn_top = bar.btn_export_dxf
+        self.settings_btn_top = bar.btn_settings
+        self.about_btn_top = bar.btn_about
+        self.export_path_label = bar.export_path_label
+
+        self.units_combo = bar.units_combo
+        self.scale_label = bar.scale_label
+        self.mesh_info_label = bar.mesh_info_label
+
+        self.selection_mode_group = QButtonGroup(self)
+        self.selection_mode_group.setExclusive(True)
+        self.selection_mode_group.addButton(self.smart_select_btn)
+        self.selection_mode_group.addButton(self.single_pick_btn)
+
         root.addWidget(self.unified_command_bar, 0)
-        root.addWidget(self.ribbon, 0)
         root.addWidget(self.viewport_splitter, 1)
         root.setStretch(0, 0)
         root.setStretch(1, 10)
