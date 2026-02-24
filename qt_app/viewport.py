@@ -8,11 +8,11 @@ import numpy as np
 from OpenGL import GL as ogl
 import pyqtgraph.opengl as gl
 from pyqtgraph.opengl import shaders as gl_shaders
-from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QTimer, QVariantAnimation, Qt, Signal
+from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QSize, QTimer, QVariantAnimation, Qt, Signal
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QRadialGradient, QVector3D, QVector4D, QRegion
-from PySide6.QtWidgets import QGraphicsOpacityEffect, QLabel, QMenu, QSizePolicy, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QLabel, QMenu, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 import trimesh
-from ui.icon_loader import set_button_icon
+from ui.icon_loader import IconRegistry
 from ui.theme import tokens
 
 
@@ -209,6 +209,10 @@ class _CadMeshItem(gl.GLMeshItem):
         self._polygon_offset_line = bool(polygon_offset_line)
         self._wire_line_width = None if wire_line_width is None else float(wire_line_width)
 
+    def set_wire_line_width(self, width: float | None) -> None:
+        self._wire_line_width = None if width is None else float(width)
+        self.update()
+
     def paint(self) -> None:
         fill_offset_enabled = False
         line_offset_enabled = False
@@ -216,6 +220,7 @@ class _CadMeshItem(gl.GLMeshItem):
         try:
             ogl.glDisable(ogl.GL_LIGHTING)
             ogl.glDisable(ogl.GL_COLOR_MATERIAL)
+            ogl.glEnable(ogl.GL_DEPTH_TEST)
         except Exception:
             pass
         try:
@@ -267,6 +272,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._vp_bg_color = tokens.VP_BG
         self._grid_minor_color = tokens.GRID_MINOR
         self._grid_major_color = tokens.GRID_MAJOR
+        self._grid_minor_alpha = 0.62
+        self._grid_major_alpha = 0.90
         self._mesh_diffuse_color = tokens.MESH_DIFFUSE
         self._edge_color = tokens.EDGE
         self._apply_viewport_palette(self._viewport_theme)
@@ -306,6 +313,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.technical_mode_enabled = False
         self.show_edges_enabled = True
         self.wireframe_enabled = False
+        self.grid_visible = True
         self._camera_up: Tuple[float, float, float] | None = None
         self._accent_rgb = np.asarray(tokens.hex_to_rgbf(tokens.ACCENT), dtype=np.float32)
 
@@ -333,14 +341,16 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._mesh_center = np.zeros(3, dtype=np.float64)
         self._floating_orbit_last_pos: QPointF | None = None
 
-        self.grid_minor_item = gl.GLGridItem(color=_rgba255(self._grid_minor_color, 0.55))
+        self.grid_minor_item = gl.GLGridItem(color=_rgba255(self._grid_minor_color, self._grid_minor_alpha))
         self.grid_minor_item.setSize(x=12000.0, y=12000.0, z=1.0)
         self.grid_minor_item.setSpacing(10.0, 10.0, 1.0)
+        self.grid_minor_item.setVisible(self.grid_visible)
         self.addItem(self.grid_minor_item)
 
-        self.grid_major_item = gl.GLGridItem(color=_rgba255(self._grid_major_color, 0.75))
+        self.grid_major_item = gl.GLGridItem(color=_rgba255(self._grid_major_color, self._grid_major_alpha))
         self.grid_major_item.setSize(x=12000.0, y=12000.0, z=1.0)
         self.grid_major_item.setSpacing(50.0, 50.0, 1.0)
+        self.grid_major_item.setVisible(self.grid_visible)
         self.addItem(self.grid_major_item)
 
         self.mesh_item = _CadMeshItem(
@@ -362,7 +372,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             smooth=False,
             shader=None,
             polygon_offset_line=True,
-            wire_line_width=2.0,
+            wire_line_width=1.2,
         )
         self.wire_item.opts["edgeColor"] = (*tokens.hex_to_rgbf(self._edge_color), 0.30)
         self.wire_item.setGLOptions("translucent")
@@ -420,6 +430,17 @@ class ThreeDViewportWidget(gl.GLViewWidget):
 
     def paintGL(self) -> None:  # noqa: N802
         self._prepare_shader_pipeline_state()
+        try:
+            # Hard-refactor viewport cleanup:
+            # dark theme wireframes are thicker, and face fill keeps polygon offset enabled
+            # so edge lines remain visible over shaded triangles.
+            target_wire_width = 2.5 if self._viewport_theme == "dark" else 1.2
+            if getattr(self.wire_item, "_wire_line_width", None) != target_wire_width:
+                self.wire_item.set_wire_line_width(target_wire_width)
+            if hasattr(self.mesh_item, "_polygon_offset_fill") and not bool(getattr(self.mesh_item, "_polygon_offset_fill")):
+                self.mesh_item._polygon_offset_fill = True
+        except Exception:
+            pass
         self._update_headlight_uniform_state()
         super().paintGL()
         self._prepare_shader_pipeline_state()
@@ -562,6 +583,17 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         painter.fillRect(self.rect(), vignette)
         painter.end()
 
+    def _update_phase3_viewport_render_params(self) -> None:
+        # Phase 3 adaptive wireframe visibility + stronger grid contrast.
+        if self._viewport_theme == "dark":
+            self._grid_minor_alpha = 0.62
+            self._grid_major_alpha = 0.92
+            self.wire_item.set_wire_line_width(2.5)
+        else:
+            self._grid_minor_alpha = 0.62
+            self._grid_major_alpha = 0.90
+            self.wire_item.set_wire_line_width(1.2)
+
     def _apply_viewport_palette(self, theme: str) -> None:
         if theme == "dark":
             self._vp_bg_color = tokens.BG_MAIN
@@ -569,12 +601,18 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             self._grid_major_color = tokens.BORDER
             self._mesh_diffuse_color = tokens.TEXT_SECONDARY
             self._edge_color = tokens.EDGE
+            self._grid_minor_alpha = 0.62
+            self._grid_major_alpha = 0.92
             return
         self._vp_bg_color = tokens.VP_BG
-        self._grid_minor_color = tokens.GRID_MINOR
-        self._grid_major_color = tokens.GRID_MAJOR
+        # Phase 3 contrast override: keep token direction, but darken the effective
+        # grid colors for better spatial orientation on the light industrial viewport.
+        self._grid_minor_color = "#C6CDD6"
+        self._grid_major_color = "#A7B0BB"
         self._mesh_diffuse_color = tokens.MESH_DIFFUSE
         self._edge_color = tokens.EDGE
+        self._grid_minor_alpha = 0.62
+        self._grid_major_alpha = 0.90
 
     def viewport_theme(self) -> str:
         return self._viewport_theme
@@ -585,6 +623,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             normalized = "light"
         self._viewport_theme = normalized
         self._apply_viewport_palette(normalized)
+        self._update_phase3_viewport_render_params()
         self.setBackgroundColor(_rgba255(self._vp_bg_color, 1.0))
         if self.isValid():
             try:
@@ -695,15 +734,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         super().mouseMoveEvent(event)
 
     def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
-        if event.button() == Qt.MouseButton.LeftButton and self.vertices is not None and self.pick_faces is not None:
-            hit = self._raycast_face(float(event.position().x()), float(event.position().y()))
-            if hit is not None and 0 <= int(hit) < len(self.pick_faces):
-                tri = self.vertices[self.pick_faces[int(hit)]]
-                pivot = np.mean(tri, axis=0)
-                self.setCameraPosition(pos=QVector3D(float(pivot[0]), float(pivot[1]), float(pivot[2])))
-                self._on_camera_event()
-                event.accept()
-                return
+        # Keep orbit pivot anchored to the model bounding-box center.
+        # Double-click no longer re-centers the camera to a picked face centroid.
         super().mouseDoubleClickEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
@@ -810,66 +842,109 @@ class ThreeDViewportWidget(gl.GLViewWidget):
 
     def _build_hud(self) -> None:
         self.hud = QWidget(self)
-        self.hud.setObjectName("ViewportHUD")
+        self.hud.setObjectName("HUDContainer")
         self.hud.setStyleSheet(
             f"""
-            QWidget#ViewportHUD {{
-                background-color: {tokens.rgba(tokens.BG_MAIN, 0.84)};
-                border: 1px solid {tokens.BORDER};
-                border-radius: {tokens.RADIUS_FLOATING}px;
+            QWidget#HUDContainer {{
+                background: transparent;
+                border: none;
             }}
-            QToolButton {{
+            QToolButton#hudGhostButton {{
                 min-width:36px;
                 min-height:36px;
                 max-width:36px;
                 max-height:36px;
                 color:{tokens.TEXT_PRIMARY};
-                background-color:{tokens.BG_PANEL};
-                border:1px solid {tokens.BORDER};
+                background: transparent;
+                border: none;
                 border-radius:{tokens.RADIUS_1}px;
-                font-size:14px;
+                padding:0px;
             }}
-            QToolButton:checked {{
-                border-color:{tokens.ACCENT};
-                background-color:{tokens.BG_HOVER};
+            QToolButton#hudGhostButton:hover {{
+                background-color:{tokens.rgba(tokens.BG_PANEL, 0.32)};
+            }}
+            QToolButton#hudGhostButton:checked {{
+                background-color:{tokens.rgba(tokens.BG_PANEL, 0.42)};
+            }}
+            QToolButton#hudGhostButton:pressed {{
+                background-color:{tokens.rgba(tokens.BG_PANEL, 0.50)};
+            }}
+            QToolButton#hudOrbitButton {{
+                background: transparent;
+                border: none;
+                padding: 0px;
+            }}
+            QToolButton#hudOrbitButton:hover {{
+                background: transparent;
+                border: none;
+            }}
+            QToolButton#hudOrbitButton:pressed, QToolButton#hudOrbitButton:checked {{
+                background: transparent;
+                border: none;
             }}
             """
         )
-        hud_layout = QVBoxLayout(self.hud)
-        hud_layout.setContentsMargins(tokens.SPACE_S, tokens.SPACE_S, tokens.SPACE_S, tokens.SPACE_S)
-        hud_layout.setSpacing(tokens.SPACE_S)
+        hud_layout = QHBoxLayout(self.hud)
+        hud_layout.setContentsMargins(0, 0, 0, 0)
+        hud_layout.setSpacing(tokens.SPACE_XS)
 
-        self.hud_fit_btn = QToolButton(self.hud)
-        self.hud_fit_btn.setText("\u26F6")
-        self.hud_fit_btn.setToolTip("Zoom Fit")
+        def apply_hud_icon(button: QToolButton, icon_name: str, *, size_px: int, color: str = tokens.TEXT_PRIMARY) -> None:
+            icon = IconRegistry.get_icon(icon_name, size=size_px, color=color)
+            if icon.isNull():
+                return
+            button.setIcon(icon)
+            button.setIconSize(QSize(size_px, size_px))
+
+        def make_ghost_button(*, tooltip: str, icon_name: str, checkable: bool = False) -> QToolButton:
+            btn = QToolButton(self.hud)
+            btn.setObjectName("hudGhostButton")
+            btn.setText("")
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+            btn.setFixedSize(36, 36)
+            btn.setCheckable(checkable)
+            btn.setToolTip(tooltip)
+            apply_hud_icon(btn, icon_name, size_px=20)
+            return btn
+
+        self.hud_fit_btn = make_ghost_button(tooltip="Zoom Fit", icon_name="frame_selection")
         self.hud_fit_btn.clicked.connect(self.reset_camera)
 
+        # Keep the pan/zoom override toggles for compatibility with existing methods,
+        # but remove them from the visible HUD to avoid ambiguous glyph buttons.
         self.hud_pan_btn = QToolButton(self.hud)
-        self.hud_pan_btn.setText("\u270B")
-        self.hud_pan_btn.setToolTip("Pan Override")
+        self.hud_pan_btn.setText("")
         self.hud_pan_btn.setCheckable(True)
+        self.hud_pan_btn.setToolTip("Pan Override")
         self.hud_pan_btn.toggled.connect(self._toggle_pan_mode)
+        self.hud_pan_btn.hide()
 
         self.hud_zoom_btn = QToolButton(self.hud)
-        self.hud_zoom_btn.setText("\u21F5")
-        self.hud_zoom_btn.setToolTip("Zoom Override")
+        self.hud_zoom_btn.setText("")
         self.hud_zoom_btn.setCheckable(True)
+        self.hud_zoom_btn.setToolTip("Zoom Override")
         self.hud_zoom_btn.toggled.connect(self._toggle_zoom_mode)
+        self.hud_zoom_btn.hide()
 
         self.hud_orbit_btn = QToolButton(self.hud)
-        self.hud_orbit_btn.setText("\u21BB")
+        self.hud_orbit_btn.setObjectName("hudOrbitButton")
+        self.hud_orbit_btn.setText("")
         self.hud_orbit_btn.setToolTip("Orbit Override")
+        self.hud_orbit_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.hud_orbit_btn.setCheckable(True)
         self.hud_orbit_btn.setChecked(False)
+        self.hud_orbit_btn.setFixedSize(48, 48)
+        self.hud_orbit_btn.setIconSize(QSize(32, 32))
         self.hud_orbit_btn.toggled.connect(self._toggle_orbit_mode)
+        orbit_icon = IconRegistry.get_icon("orbit", size=32, color=tokens.TEXT_PRIMARY)
+        if not orbit_icon.isNull():
+            self.hud_orbit_btn.setIcon(orbit_icon)
 
-        self.hud_split_btn = QToolButton(self.hud)
-        self.hud_split_btn.setText("\u25EB")
-        self.hud_split_btn.setToolTip("Toggle 2D Preview")
+        self.hud_split_btn = make_ghost_button(tooltip="Toggle 2D Preview", icon_name="isolate")
         self.hud_split_btn.clicked.connect(self.splitToggleRequested.emit)
 
-        for btn in (self.hud_fit_btn, self.hud_pan_btn, self.hud_zoom_btn, self.hud_orbit_btn, self.hud_split_btn):
-            hud_layout.addWidget(btn)
+        hud_layout.addWidget(self.hud_fit_btn)
+        hud_layout.addWidget(self.hud_orbit_btn)
+        hud_layout.addWidget(self.hud_split_btn)
         self.hud.adjustSize()
         self.hud.show()
 
@@ -877,24 +952,28 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.floating_orbit_btn.setObjectName("FloatingOrbitButton")
         self.floating_orbit_btn.setText("")
         self.floating_orbit_btn.setToolTip("Drag to Orbit Around Model")
-        self.floating_orbit_btn.setFixedSize(40, 40)
+        self.floating_orbit_btn.setFixedSize(48, 48)
         self.floating_orbit_btn.setStyleSheet(
             f"""
             QToolButton#FloatingOrbitButton {{
+                background: transparent;
                 border: none;
-                border-radius: 20px;
-                background-color: rgba(255, 255, 255, 20);
                 padding: 0px;
             }}
             QToolButton#FloatingOrbitButton:hover {{
-                background-color: rgba(255, 255, 255, 32);
+                background: transparent;
+                border: none;
             }}
             QToolButton#FloatingOrbitButton:pressed {{
-                background-color: rgba(255, 255, 255, 32);
+                background: transparent;
+                border: none;
             }}
             """
         )
-        set_button_icon(self.floating_orbit_btn, "orbit_button", size=24, color=tokens.ACCENT)
+        self.floating_orbit_btn.setIconSize(QSize(32, 32))
+        floating_orbit_icon = IconRegistry.get_icon("orbit", size=32, color=tokens.ACCENT)
+        if not floating_orbit_icon.isNull():
+            self.floating_orbit_btn.setIcon(floating_orbit_icon)
         self.floating_orbit_btn.dragStarted.connect(self._on_floating_orbit_drag_started)
         self.floating_orbit_btn.dragMoved.connect(self._on_floating_orbit_drag_moved)
         self.floating_orbit_btn.dragFinished.connect(self._on_floating_orbit_drag_finished)
@@ -902,7 +981,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._position_hud()
 
     def _position_hud(self) -> None:
-        margin = 16
+        margin = 10
+        self.hud.adjustSize()
         self.hud.move(max(0, self.width() - self.hud.width() - margin), max(0, self.height() - self.hud.height() - margin))
         self.hud.raise_()
         if hasattr(self, "floating_orbit_btn"):
@@ -1267,6 +1347,15 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             self.show_edges_enabled = True
         self._update_mesh_visuals()
 
+    def set_grid_visible(self, enabled: bool) -> None:
+        self.grid_visible = bool(enabled)
+        try:
+            self.grid_minor_item.setVisible(self.grid_visible)
+            self.grid_major_item.setVisible(self.grid_visible)
+        except Exception:
+            pass
+        self.update()
+
     def get_selected_faces(self) -> List[int]:
         return sorted(self.selected_faces)
 
@@ -1301,9 +1390,10 @@ class ThreeDViewportWidget(gl.GLViewWidget):
 
         mins = verts.min(axis=0)
         maxs = verts.max(axis=0)
-        center = (mins + maxs) * 0.5
         diag = float(np.linalg.norm(maxs - mins))
         dist = max(diag * 1.5, 1.0)
+        center = self._bbox_center(self.vertices)
+        self._mesh_center = center
         self.setCameraPosition(pos=QVector3D(float(center[0]), float(center[1]), float(center[2])), distance=dist)
         self.update()
         self._on_camera_event()
@@ -1360,13 +1450,13 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.grid_minor_item.resetTransform()
         self.grid_minor_item.setSize(x=x_size, y=y_size, z=1.0)
         self.grid_minor_item.setSpacing(minor_step, minor_step, 1.0)
-        self.grid_minor_item.setColor(_rgba255(self._grid_minor_color, 0.55))
+        self.grid_minor_item.setColor(_rgba255(self._grid_minor_color, float(self._grid_minor_alpha)))
         self.grid_minor_item.translate(cx, cy, 0.0)
 
         self.grid_major_item.resetTransform()
         self.grid_major_item.setSize(x=x_size, y=y_size, z=1.0)
         self.grid_major_item.setSpacing(major_step, major_step, 1.0)
-        self.grid_major_item.setColor(_rgba255(self._grid_major_color, 0.75))
+        self.grid_major_item.setColor(_rgba255(self._grid_major_color, float(self._grid_major_alpha)))
         self.grid_major_item.translate(cx, cy, 0.1)
 
     def _fix_render_face_winding(self, faces: np.ndarray) -> np.ndarray:

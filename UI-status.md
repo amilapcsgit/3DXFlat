@@ -15,7 +15,7 @@ The recent work maps the `ui-enhance-v2.md` C++ `QOpenGLWidget` instructions to 
 
 - `qt_app/ribbon_window.py`
   - Main ribbon-style window shell (top toolbar + tabs + viewport + side panels)
-  - Creates the **Run Flatten** top action button
+  - Current ribbon follows a singleton-action rule (primary actions live in ribbon tabs)
 - `qt_app/viewport.py`
   - `ThreeDViewportWidget` (3D OpenGL viewport)
   - Mesh load/update, camera orbit/pan/zoom, selection, wireframe/edge rendering
@@ -24,11 +24,15 @@ The recent work maps the `ui-enhance-v2.md` C++ `QOpenGLWidget` instructions to 
 - `ui/theme/industrial_cad.qss`
   - Base tokenized theme stylesheet
 - `ui/icon_loader.py`
-  - Applies icon colors (including primary action button icon tint)
+  - Icon loading helpers + `IconRegistry` (resource icons + Base64-backed SVG icon keys)
+- `ui/icons/svg_icon.py`
+  - SVG icon rendering helpers (now includes inline SVG text -> `QIcon` path)
+- `ui/icons/phase3_b64_icons.py`
+  - Phase 3 inline Base64 SVG icon constants (Orbit / Import 3D)
 
 ## What Was Changed (This Pass)
 
-This file was updated again after an additional **Phase 1 viewport pass** (navigation + shading readability) on branch `ui-enhance`.
+This file tracks cumulative UI work on branch `ui-enhance`, including the later Phase 3 cleanup and hard refactor pass.
 
 ### 1. OpenGL Camera Orbit Fix (model center pivot)
 
@@ -76,8 +80,9 @@ Additional work in `qt_app/viewport.py` to address the remaining "glitchy/unintu
   - produces a more CAD-like Z-up orbit behavior
 - Reworked view presets (`FRONT/BACK/LEFT/RIGHT/TOP/BOTTOM`) to use explicit `elevation`/`azimuth`
   - keeps presets aligned with the Euler controller
-- Added **double-click pivot** behavior
-  - double-clicking a visible face sets the orbit pivot to that face centroid (pick-point pivot)
+- Added **double-click pivot** behavior (historical step)
+  - this temporarily allowed double-clicking a visible face to set the orbit pivot to that face centroid
+  - later follow-up work (see `4d`) removed this to enforce a fixed bounding-box-center pivot
 - Added a **subtle gradient + vignette viewport overlay**
   - improves depth perception and silhouette separation in dark mode
 - Upgraded the custom headlight shader to a **two-tone CAD-style readable shader**
@@ -88,7 +93,7 @@ Additional work in `qt_app/viewport.py` to address the remaining "glitchy/unintu
 Result:
 
 - Orbit feels more stable and CAD-like
-- Pick-point orbit pivot is now available (double-click)
+- Note: the temporary double-click pivot behavior from this phase was later removed to preserve a fixed model-center pivot
 - Mesh remains more readable in dark mode and under rotation
 
 ### 2c. World-Tilt Fix (Turntable Model Rotation, Grid Stays Fixed)
@@ -143,6 +148,213 @@ Result:
 - `QToolButton#btnRunFlatten` accent styling now applies to **Run Flatten**
 - Primary button icon remains readable (uses `ON_ACCENT` tint)
 
+### 4. Phase 3 (Industrial Polish) - Ribbon / HUD / Wireframe Pass
+
+Implemented in:
+
+- `qt_app/ribbon_window.py`
+- `qt_app/viewport.py`
+- `ui/icon_loader.py`
+- `ui/icons/svg_icon.py`
+- `ui/icons/phase3_b64_icons.py`
+
+Changes:
+
+- Added inline Base64 SVG icon support
+  - `ui/icon_loader.py` now supports applying icons from Base64 SVG strings
+  - `ui/icons/svg_icon.py` now supports rendering SVG content directly from text (not only file paths)
+- Added Phase 3 icons (consistent stroke width = `2`)
+  - `ICON_ORBIT_3D_SVG_B64`
+  - `ICON_IMPORT_3D_SVG_B64`
+- Ribbon hierarchy refactor for **SETUP** and **FLATTEN**
+  - Primary actions use large `QToolButton` layout (icon above text)
+  - Secondary tools grouped into compact framed grids (2x2 / compact clusters)
+  - Added a large **Run Flatten** action button inside the Flatten tab (`#btnRunFlatten`)
+  - Added token-based `QToolButton` hover/pressed styling directly on the refactored ribbon controls
+- Splitter polish
+  - 3D/2D `QSplitter` handle reduced to `4px` and themed with border/accent hover
+- Viewport HUD polish
+  - Semi-transparent dark HUD panel with tighter spacing/padding
+  - Standardized icon semantics (Orbit uses circular-arrows icon instead of ambiguous hand/glyph)
+  - Floating orbit button now uses the new Base64 Orbit icon and matching hover/pressed styling
+- Adaptive wireframe rendering / grid readability
+  - Wireframe line width adapts to viewport theme:
+    - dark = `2.5`
+    - light = `1.2`
+  - Existing polygon offset fill pass remains active (`glEnable(GL_POLYGON_OFFSET_FILL)` + `glPolygonOffset(1.0, 1.0)`)
+  - Light-theme grid major/minor contrast strengthened for better visibility against `VP_BG`
+
+Result:
+
+- Ribbon hierarchy is closer to a CAD workflow (clear primary vs secondary actions)
+- Orbit controls read more clearly and feel less "UI-mismatched"
+- Wireframe visibility is improved in dark mode and grid lines are easier to read in light mode
+
+### 4b. Phase 3 Cleanup Finalization (Singleton Ribbon + Ghost Orbit HUD)
+
+Follow-up cleanup (after screenshot review + `ui-cleanup-final.md`) corrected several Phase 3 regressions:
+
+- Removed duplicated **Import** / **Run Flatten** actions from the top toolbar
+  - these actions now exist only once in the ribbon tabs
+- Refined ribbon button hierarchy
+  - **Import 3D** and **Run Flatten** remain the only large action buttons
+  - secondary Setup / Flatten tools were converted to compact icon-only `QToolButton`s with tooltips (historical state; later reversed in `4e`)
+- Ensured **Run Flatten** is the only solid cyan (`#00AEEF`) primary action button
+- Orbit HUD cleanup
+  - orbit HUD button now uses a "ghost" style (transparent, borderless, centered icon)
+  - orbit icons (HUD + floating orbit drag button) increased to `32x32` inside `48x48` buttons for proper centering (final hard-refactor sizing)
+  - HUD container moved to bottom-right with `10px` margin
+- Wireframe cleanup
+  - explicit per-frame wireframe width policy now enforces:
+    - dark = `2.5`
+    - light = `1.2`
+  - `GL_DEPTH_TEST` is explicitly enabled in the mesh item paint path before draw passes
+
+### 4c. Hard Refactor Finalization (Ribbon Consolidation + Icon Registry)
+
+Follow-up hard refactor (after `ui-refactor-final.md`) replaced the ad-hoc Phase 3 ribbon/HUD layout code with a consolidated implementation.
+
+Implemented in:
+
+- `qt_app/ribbon_window.py`
+- `qt_app/viewport.py`
+- `ui/icon_loader.py`
+- `ui/icons/phase3_b64_icons.py`
+
+Changes:
+
+- Ribbon rebuilt around a single helper:
+  - `create_ribbon_button(type="large"/"small", ...)`
+  - ensures consistent sizing, style, icon assignment, and tooltips
+- Ribbon singleton rule enforced:
+  - **Import** and **Run Flatten** no longer exist in the top toolbar
+  - top toolbar now contains utility actions (2D preview / export / settings / about)
+- Primary action hierarchy enforced:
+  - only **Import** and **Run Flatten** are large `ToolButtonTextUnderIcon` buttons
+  - **Run Flatten** is the only cyan-accent button (`#00AEEF`)
+- Setup secondary controls simplified to compact icon-only buttons (historical `4c` state; later reversed in `4e`):
+  - `Reset View`
+  - `Wireframe`
+  - `Grid` (new functional toggle wired to `ThreeDViewportWidget.set_grid_visible(...)`)
+- HUD refactor:
+  - transparent `HUDContainer` with horizontal layout
+  - orbit button object name standardized to `hudOrbitButton`
+  - forced sizing for centering:
+    - button = `48x48`
+    - icon = `32x32`
+  - bottom-right anchoring remains `10px`
+- Icon access refactor:
+  - `IconRegistry.get_icon("orbit")`
+  - `IconRegistry.get_icon("import_3d")`
+  - UI files no longer reference Base64 constants directly
+
+Result:
+
+- Ribbon is visually cleaner and structurally consistent
+- Duplicate primary actions are removed
+- Orbit HUD icon alignment is fixed and predictable across DPI scales
+- Base64 icon assets are centralized behind a named registry API
+
+### 4d. Hard Refactor Recovery / Corrective Pass (Ribbon + HUD + Pivot Lock)
+
+Follow-up corrective work (after UI regression review) was applied directly to restore usability and professional CAD semantics.
+
+Implemented in:
+
+- `qt_app/ribbon_window.py`
+- `qt_app/viewport.py`
+
+Changes in `qt_app/ribbon_window.py`:
+
+- Enforced ribbon rebuild safety:
+  - `_build_ribbon()` now clears/deletes an existing ribbon instance before rebuilding to avoid duplicate widgets when the UI is reconstructed
+- Kept the singleton primary-action rule:
+  - **Import 3D** and **Run Flatten** remain ribbon-only primary actions
+  - top toolbar remains utility-focused (2D preview / export / settings / about)
+- Preserved and reasserted primary button semantics:
+  - **Import 3D** and **Run Flatten** are explicit `ToolButtonTextUnderIcon`
+  - **Run Flatten** keeps `setObjectName("btnRunFlatten")` for cyan accent styling
+- Removed layout-loop ambiguity in ribbon groups:
+  - secondary controls are now added explicitly (single pass) instead of grouped append loops that were contributing to regressions during refactor churn
+- Added/kept functional grid toggle in the Setup ribbon:
+  - `Grid` button is wired to `ThreeDViewportWidget.set_grid_visible(...)`
+- Switched icon assignment in ribbon/top-toolbar code to `IconRegistry.get_icon(...)`
+  - avoids direct icon helper usage in layout code and keeps icon sourcing centralized
+
+Changes in `qt_app/viewport.py`:
+
+- HUD rebuilt as a transparent bottom-right overlay:
+  - `HUDContainer` uses a transparent background and horizontal layout
+  - bottom-right anchor margin is `10px`
+- Orbit HUD button cleanup:
+  - `hudOrbitButton` is transparent / borderless ("ghost" style)
+  - forced sizing for centering:
+    - button = `48x48`
+    - icon = `32x32`
+- Floating orbit drag button cleanup:
+  - transparent / borderless styling
+  - forced sizing:
+    - button = `48x48`
+    - icon = `32x32`
+- HUD icon usage moved to `IconRegistry.get_icon(...)`
+  - no inline SVG generation in viewport layout code
+- Hidden HUD pan/zoom override toggles (kept for compatibility)
+  - the toggle objects still exist for the current methods/signals
+  - they are no longer shown in the visible HUD to avoid ambiguous iconography
+- Camera pivot lock reinforcement:
+  - `mouseDoubleClickEvent()` no longer recenters the camera to a picked-face centroid
+  - `_frame_selected_region()` now keeps the camera pivot at the **model bounding-box center** and only adjusts distance/framing
+- Wireframe / render-pass visibility safeguards:
+  - `_CadMeshItem.paint()` explicitly enables `GL_DEPTH_TEST`
+  - `paintGL()` reasserts per-frame wire width policy (`dark=2.5`, `light=1.2`)
+  - `paintGL()` reasserts polygon offset fill on the face mesh item when needed
+
+Result:
+
+- Ribbon and HUD regressions from the derailed refactor were corrected without reintroducing duplicated primary actions
+- Orbit pivot behavior is now consistently locked to the model bounding-box center during normal operation and frame-selection actions
+- Wireframe visibility/readability is more stable in dark mode
+
+### 4e. Ribbon Label Restoration (Post-Refactor UX Follow-up)
+
+User feedback after the hard refactor noted that the ribbon became too icon-heavy and lost semantic clarity compared to earlier usable builds.
+
+Implemented in:
+
+- `qt_app/ribbon_window.py`
+
+Changes:
+
+- Restored visible labels on secondary ribbon buttons (current state)
+  - secondary ribbon buttons now use `ToolButtonTextBesideIcon` instead of icon-only presentation
+  - examples: `Reset Camera`, `Wireframe`, `Grid`, `Smart Select`, `Single Pick`, `Clear`, `Invert`, `Isolate`, `Technical`, `Edges`
+- Increased ribbon strip height to support visible labels without clipping
+  - `_phase3_ribbon_strip_height` increased to `108` to preserve text-under-icon readability for primary buttons and text visibility in grouped controls
+- Restored visible labels on top-right utility buttons
+  - `Settings`
+  - `About`
+- Improved top-toolbar 2D preview wording
+  - button label now toggles between:
+    - `Show 2D Preview`
+    - `Hide 2D Preview`
+
+Current ribbon semantics (superseding the icon-only note in `4b`/`4c`):
+
+- Primary ribbon actions:
+  - large `ToolButtonTextUnderIcon`
+  - `Import 3D`, `Run Flatten`
+- Secondary ribbon actions:
+  - labeled `ToolButtonTextBesideIcon` with icons (not icon-only)
+  - still keep tooltips for discoverability
+
+Follow-up note for future agents:
+
+- If the ribbon becomes crowded again (especially at 125-150% DPI), prefer:
+  - shortening labels (e.g., `Reset Cam`)
+  - grouping less-used actions into overflow/menu buttons
+  - or using a true 2-row compact grid only for advanced/rare actions
+  - avoid reverting all secondary actions to icon-only unless usability is revalidated with screenshots/runtime testing
+
 ## How the 3D Viewport Currently Works
 
 `ThreeDViewportWidget` (`qt_app/viewport.py`) extends `pyqtgraph.opengl.GLViewWidget` and manages:
@@ -150,6 +362,8 @@ Result:
 - Camera navigation:
   - orbit / pan / zoom (mouse + HUD buttons)
   - current default orbit uses a **turntable model-rotation path** (mesh rotates, world grid stays fixed)
+  - visible HUD controls are currently: **Fit**, **Orbit**, **Toggle 2D Preview**
+  - pan/zoom override toggle objects still exist in code but are hidden from the visible HUD (compatibility holdover)
 - Mesh rendering:
   - face mesh item
   - wireframe/edge mesh item
@@ -161,10 +375,15 @@ Result:
 - Camera target / orbit center:
   - pyqtgraph uses `self.opts["center"]` as orbit pivot
   - camera position is derived from `center + distance + rotation`
+  - current corrective pass keeps the pivot locked to the **model bounding-box center**
+    - double-click no longer re-centers to a picked face
+    - frame-selected-region now preserves bbox-center pivot and adjusts distance only
 
 Key rendering flow:
 
 1. `paintGL()` prepares pipeline state
+   - applies adaptive wireframe width policy (`2.5` dark / `1.2` light)
+   - reasserts face polygon-offset fill when needed for wireframe readability
 2. `paintGL()` updates headlight shader uniforms from current camera/view matrix
 3. pyqtgraph draws mesh items
 4. HUD / floating orbit UI updates
@@ -176,7 +395,7 @@ Key rendering flow:
    - The intent was implemented, but future agents should treat it as a spec, not executable code.
 
 2. OpenGL line width support is driver-dependent in Core Profile.
-   - `glLineWidth(2.0)` is requested and now set, but many modern GPU drivers clamp line width to `1.0`.
+   - The viewport now requests adaptive widths (`2.5` dark / `1.2` light), but many modern GPU drivers still clamp line width to `1.0`.
    - If wireframes are still too thin, a shader-based edge overlay or duplicated line geometry may be needed.
 
 3. Headlight implementation is pyqtgraph-specific (not fixed-function lighting).
@@ -187,9 +406,9 @@ Key rendering flow:
    - QSS affects widget frame/border and some background presentation.
    - Actual 3D canvas clear color still comes from `setBackgroundColor(...)` / `glClearColor(...)`.
 
-5. Framing selected region can still change orbit target intentionally.
-   - `ThreeDViewportWidget._frame_selected_region()` sets camera center to the framed region.
-   - This is useful behavior, but it means the orbit pivot may temporarily move away from whole-model center after a frame-selection action.
+5. Framing selected region still changes distance (but not pivot).
+   - The current corrective pass keeps the orbit pivot at the model bounding-box center during `_frame_selected_region()`.
+   - Framing still changes camera distance based on the selected-region bounds, which is intentional.
 
 6. The gradient/vignette is currently a post-paint overlay.
    - It improves visual depth, but it is not a true OpenGL background gradient pass yet.
@@ -199,19 +418,37 @@ Key rendering flow:
    - Orbit drag now rotates the model display items (not only the camera).
    - Any UI elements that infer orientation only from camera azimuth/elevation may not reflect the object's turned orientation without an additional model-rotation signal.
 
+8. Base64 SVG icons remain a stopgap, even though access is centralized.
+   - UI code now uses `IconRegistry` for ribbon/HUD icon lookup (no inline SVG strings in layout code).
+   - A future cleanup can still move the icon set to compiled Qt resources if the icon library grows.
+
+9. Ribbon label density may need another pass at high DPI / narrow widths.
+   - Secondary ribbon controls are intentionally labeled again (text + icon) for usability.
+   - At 125-150% DPI, some groups may require shorter labels or overflow grouping to avoid crowding.
+
 ## Validation Performed
 
+- Latest follow-up pass syntax checks:
+  - `python -m py_compile qt_app/ribbon_window.py`
+  - `python -m py_compile qt_app/viewport.py`
 - Python syntax checks passed:
   - `qt_app/viewport.py`
   - `qt_app/ribbon_window.py`
   - `ui/theme/apply_theme.py`
   - `ui/icon_loader.py`
+  - `ui/icons/svg_icon.py`
+  - `ui/icons/phase3_b64_icons.py`
 
 ## Recommended Next Checks (Manual Runtime)
 
-1. Load an off-origin STL/OBJ and verify orbit pivot is centered on the mesh.
+1. Load an off-origin STL/OBJ and verify orbit pivot is centered on the mesh bounding box.
 2. Rotate model 180 degrees and confirm face shading remains visible.
 3. Toggle wireframe / edges and confirm line thickness and z-fighting behavior.
-4. Confirm top **Run Flatten** button uses the cyan accent (`#btnRunFlatten`) and the icon remains visible.
+4. Confirm ribbon **Run Flatten** button uses the cyan accent (`#btnRunFlatten`) and the icon remains visible.
 5. Orbit the model and confirm the grid remains fixed while the object turns.
 6. Hover/select faces after orbiting and confirm picking still matches the displayed rotated mesh.
+7. Verify Setup/Flatten ribbon layouts render correctly at normal DPI and 125%-150% Windows scaling (button alignment, spacing, icon centering, and label clipping).
+8. Verify secondary ribbon buttons keep visible text labels (semantic names) and do not regress to icon-only.
+9. Double-click a face and confirm the orbit pivot does **not** jump to the picked face centroid.
+10. Press `Z` / frame selected region and confirm distance changes while orbit pivot remains at bbox center.
+11. Verify dark-mode wireframe line thickness increases to 2.5 and remains visible during rotation.

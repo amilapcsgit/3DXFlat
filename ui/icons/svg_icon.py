@@ -36,6 +36,21 @@ def _replace_current_color(svg: str, color_hex: str) -> str:
     )
 
 
+@lru_cache(maxsize=256)
+def _render_svg_text_pixmap(svg_text: str, size_px: int, color_hex: str, opacity_255: int) -> QPixmap:
+    svg_text = _replace_current_color(svg_text, color_hex)
+    renderer = QSvgRenderer(QByteArray(svg_text.encode("utf-8")))
+    pm = QPixmap(size_px, size_px)
+    pm.fill(Qt.GlobalColor.transparent)
+
+    p = QPainter(pm)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    p.setOpacity(opacity_255 / 255.0)
+    renderer.render(p, QRect(0, 0, size_px, size_px))
+    p.end()
+    return pm
+
+
 @lru_cache(maxsize=512)
 def _render_svg_pixmap(svg_key: str, size_px: int, color_hex: str, opacity_255: int) -> QPixmap:
     """
@@ -72,6 +87,16 @@ def themed_svg_icon(svg_path: str, *,
     color_hex = color.name(QColor.NameFormat.HexRgb)  # '#RRGGBB'
     opacity_255 = max(0, min(255, int(opacity * 255)))
     pm = _render_svg_pixmap(svg_path, size_px, color_hex, opacity_255)
+    return QIcon(pm)
+
+
+def themed_svg_icon_from_text(svg_text: str, *,
+                              color: QColor,
+                              size_px: int = 24,
+                              opacity: float = 1.0) -> QIcon:
+    color_hex = color.name(QColor.NameFormat.HexRgb)
+    opacity_255 = max(0, min(255, int(opacity * 255)))
+    pm = _render_svg_text_pixmap(svg_text, size_px, color_hex, opacity_255)
     return QIcon(pm)
 
 
