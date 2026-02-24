@@ -534,6 +534,8 @@ class RibbonMainWindow(QMainWindow):
         self.selection_mode_group.addButton(self.smart_select_btn)
         self.selection_mode_group.addButton(self.single_pick_btn)
 
+        self._wire_unified_command_bar_actions()
+
         root.addWidget(self.unified_command_bar, 0)
         root.addWidget(self.viewport_splitter, 1)
         root.setStretch(0, 0)
@@ -542,6 +544,46 @@ class RibbonMainWindow(QMainWindow):
         self.setCentralWidget(central)
         self._apply_selection_mode()
         self._update_workflow_enablement()
+
+    def _wire_unified_command_bar_actions(self) -> None:
+        # PH2-S3: UI-only signal wiring to existing handlers.
+        self.import_btn_setup.setShortcut("Ctrl+O")
+        self.import_btn_setup.clicked.connect(self.import_3d_dialog)
+
+        self.reset_camera_btn.clicked.connect(self.viewport.reset_camera)
+        self.wireframe_btn.toggled.connect(self.viewport.set_wireframe_mode)
+        self.grid_btn.toggled.connect(self.viewport.set_grid_visible)
+
+        self.smart_select_btn.clicked.connect(self._apply_selection_mode)
+        self.single_pick_btn.clicked.connect(self._apply_selection_mode)
+        self.clear_selection_btn.clicked.connect(self.viewport.clear_selection)
+        self.invert_selection_btn.clicked.connect(self.viewport.invert_selection)
+        self.isolate_btn.toggled.connect(self._on_isolate_toggled)
+        self.toggle_2d_btn.toggled.connect(self.toggle_2d_preview)
+
+        self.units_combo.currentTextChanged.connect(self._update_dimension_label_only)
+        self.technical_mode_btn.toggled.connect(self.viewport.set_technical_mode)
+        self.show_edges_btn.toggled.connect(self.viewport.set_edges_visible)
+
+        self.run_flatten_btn_tab.setShortcut("F5")
+        self.run_flatten_btn_tab.clicked.connect(self.run_flatten)
+
+        self.seam_slider.valueChanged.connect(self._on_seam_slider_changed)
+        self.nest_btn.clicked.connect(self.run_nesting_job)
+
+        self.export_btn_top.setShortcut("Ctrl+E")
+        self.export_btn_top.clicked.connect(self.export_dxf)
+        self.settings_btn_top.clicked.connect(self._show_settings_dialog)
+        self.about_btn_top.clicked.connect(self._show_about_dialog)
+
+        # Reassert current toggle state in the viewport after connecting signals.
+        try:
+            self.viewport.set_grid_visible(bool(self.grid_btn.isChecked()))
+            self.viewport.set_wireframe_mode(bool(self.wireframe_btn.isChecked()))
+            self.viewport.set_technical_mode(bool(self.technical_mode_btn.isChecked()))
+            self.viewport.set_edges_visible(bool(self.show_edges_btn.isChecked()))
+        except Exception:
+            pass
 
     def _build_top_toolbar(self) -> None:
         tb = QToolBar("Main Actions", self)
