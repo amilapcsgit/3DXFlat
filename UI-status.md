@@ -414,6 +414,99 @@ Result:
 - Duplicate top-right controls are removed from the active layout path
 - Command discoverability is improved because all command bar controls are labeled
 
+#### 5a. How PHASE 2 Was Executed (Strict Step-Gated Recovery)
+
+PHASE 2 was implemented as a **strict, step-by-step refactor** (UI-only) with small commits and explicit completion checks after each step.
+
+Execution model used:
+
+- Source of truth:
+  - `UI-status.md`
+  - `Industrial_CAD_Theme_v1.md`
+  - `UI_Refinement_Phase_1.md`
+  - `UI-recovery-plan.md`
+  - `ui/icons/Industrial_SVG_Set_v1/README.md`
+- Step gating:
+  - `PH2-S1` through `PH2-S5` executed in order
+  - each step was validated before moving on
+  - one commit per step (plus a pre-PH2 checkpoint)
+- Scope control:
+  - UI layout / widget wiring / QSS only
+  - no flattening, nesting, DXF export, or viewport shader pipeline changes in PHASE 2
+
+Implementation method (important for future cleanup):
+
+- `PH2-S1` created `qt_app/unified_command_bar.py` as a **new isolated widget**
+  - intentionally added first without removing the old ribbon path
+  - reduced risk while the widget structure, object names, and icon loading were being stabilized
+- `PH2-S2` switched the active build path in `RibbonMainWindow._build_ui()`
+  - inserted the unified bar into the main layout
+  - stopped adding the top toolbar and tabbed ribbon in the active path
+  - introduced compatibility aliases (mapping new controls to legacy attribute names) so existing methods could keep working
+- `PH2-S3` added signal wiring in a dedicated helper (`_wire_unified_command_bar_actions()`)
+  - connected unified bar controls to existing handlers
+  - explicitly reused old callbacks instead of rewriting business logic
+- `PH2-S4` added tokenized QSS styling in `ui/theme/industrial_cad.qss`
+  - used PHASE 2 object names (`CommandBar`, `GroupCard`, `PrimaryButton`, etc.)
+  - made `Run Flatten` primary and `Export DXF` secondary
+- `PH2-S5` cleanup/audit
+  - disabled legacy `_build_top_toolbar()` and `_build_ribbon()` code paths with stubs (rather than deleting immediately)
+  - updated this status file with PHASE 2 details
+
+Why compatibility aliases were used:
+
+- `RibbonMainWindow` already had many methods expecting attributes like:
+  - `toggle_2d_btn`
+  - `run_flatten_btn_tab`
+  - `export_btn_top`
+  - `settings_btn_top`
+- Rebinding unified-bar controls to these names allowed a lower-risk UI refactor without touching non-UI logic.
+- This is intentional technical debt for PHASE 2 and should be cleaned once the unified bar layout stabilizes.
+
+#### 5b. PHASE 2 Commit Sequence (Exact)
+
+Pre-checkpoint before strict PHASE 2 work:
+
+- `790ee44` `chore: checkpoint pre-phase2 ui refactor state`
+
+PHASE 2 step commits:
+
+- `9d5888f` `PH2-S1: add unified command bar shell widget`
+- `9fdc936` `PH2-S2: replace active ribbon path with unified command bar`
+- `98507d2` `PH2-S3: wire unified command bar to existing UI handlers`
+- `17f4d7c` `PH2-S4: style unified command bar with industrial theme tokens`
+- `86cc32c` `PH2-S5: disable legacy ribbon paths and update UI status`
+
+Branch note:
+
+- The requested branch namespace was `ui/enhance`.
+- Local work was performed on `ui-enhance` because this repo has a ref namespace conflict with an existing `ui` ref that blocks creating a local `ui/enhance` branch.
+- Remote work previously targeted `3DXflat/ui/enhance`.
+
+#### 5c. PHASE 2 Validation Method (What Was Actually Tested)
+
+Because a working Qt runtime was not available in the execution environment during PHASE 2, completion checks were performed with a combination of:
+
+- `py_compile` syntax checks
+- static text/AST audits
+- targeted code-path verification in `ribbon_window.py` and `unified_command_bar.py`
+
+What the static PHASE 2 audits verified:
+
+- `UnifiedCommandBar` is inserted in the active `_build_ui()` path
+- active `_build_ui()` no longer calls `_build_top_toolbar()` / `_build_ribbon()`
+- legacy builder methods exist but are neutralized (stubs/disabled paths)
+- required signal connections exist for import/view/select/flatten/output/settings/about actions
+- icon filenames referenced by `UnifiedCommandBar.ICON_MAP` exist in `ui/icons/Industrial_SVG_Set_v1`
+- `UI-status.md` includes PHASE 2 documentation
+
+What was not verified in-runtime during PHASE 2:
+
+- actual widget rendering/alignment under `PySide6`
+- DPI scaling behavior
+- live button interaction in a running Qt app
+- visual parity against screenshots beyond code-level intent
+
 ## How the 3D Viewport Currently Works
 
 `ThreeDViewportWidget` (`qt_app/viewport.py`) extends `pyqtgraph.opengl.GLViewWidget` and manages:
@@ -490,6 +583,18 @@ Key rendering flow:
    - Unified command bar controls are assigned to legacy attribute names to minimize risk.
    - A future cleanup can remove more legacy naming once the unified bar stabilizes.
 
+11. PHASE 2 visual parity is structurally correct, but a follow-up polish pass is still expected.
+   - The command bar is unified and labeled, but spacing, balance, and final CAD-grade visual rhythm may still need screenshot-driven tuning.
+   - Future work should focus on alignment/visual polish before removing compatibility shims.
+
+12. Legacy UI builders are stubbed, not deleted.
+   - `_build_top_toolbar()` and `_build_ribbon()` are intentionally disabled in-place.
+   - This preserves rollback/debug context, but it increases file size and can confuse future maintenance until a cleanup pass removes dead code entirely.
+
+13. PHASE 2 testing was static due environment limitations.
+   - A working `PySide6` runtime was not available in the execution environment when PHASE 2 was implemented.
+   - Runtime UI regressions (layout clipping, size-policy issues, DPI alignment) must still be validated manually in the application.
+
 ## Validation Performed
 
 - Latest follow-up pass syntax checks:
@@ -498,6 +603,12 @@ Key rendering flow:
 - PHASE 2 step-gate syntax checks:
   - `python -m py_compile qt_app/unified_command_bar.py`
   - `python -m py_compile qt_app/ribbon_window.py`
+- PHASE 2 static audits (AST/text; no Qt import required):
+  - verified active `_build_ui()` contains one unified command bar and no active ribbon/top-toolbar calls
+  - verified legacy builder methods are stubbed/disabled
+  - verified required unified-bar signal connections are present
+  - verified `UnifiedCommandBar.ICON_MAP` files exist under `ui/icons/Industrial_SVG_Set_v1`
+  - verified `UI-status.md` contains the PHASE 2 recovery section
 - Python syntax checks passed:
   - `qt_app/viewport.py`
   - `qt_app/ribbon_window.py`
@@ -505,17 +616,21 @@ Key rendering flow:
   - `ui/icon_loader.py`
   - `ui/icons/svg_icon.py`
   - `ui/icons/phase3_b64_icons.py`
+- Runtime validation limitation during PHASE 2:
+  - system `python` did not have `PySide6`
+  - the project `.venv` Python launcher was not usable in this environment
+  - therefore PHASE 2 completion tests were performed as static code audits instead of live UI interaction tests
 
 ## Recommended Next Checks (Manual Runtime)
 
 1. Load an off-origin STL/OBJ and verify orbit pivot is centered on the mesh bounding box.
 2. Rotate model 180 degrees and confirm face shading remains visible.
 3. Toggle wireframe / edges and confirm line thickness and z-fighting behavior.
-4. Confirm ribbon **Run Flatten** button uses the cyan accent (`#btnRunFlatten`) and the icon remains visible.
+4. Confirm unified command bar **Run Flatten** button uses the primary accent styling and the icon remains visible.
 5. Orbit the model and confirm the grid remains fixed while the object turns.
 6. Hover/select faces after orbiting and confirm picking still matches the displayed rotated mesh.
-7. Verify Setup/Flatten ribbon layouts render correctly at normal DPI and 125%-150% Windows scaling (button alignment, spacing, icon centering, and label clipping).
-8. Verify secondary ribbon buttons keep visible text labels (semantic names) and do not regress to icon-only.
+7. Verify unified command bar layout renders correctly at normal DPI and 125%-150% Windows scaling (group spacing, button alignment, icon centering, and label clipping).
+8. Verify all unified command bar actions keep visible text labels (semantic names) and do not regress to icon-only.
 9. Double-click a face and confirm the orbit pivot does **not** jump to the picked face centroid.
 10. Press `Z` / frame selected region and confirm distance changes while orbit pivot remains at bbox center.
 11. Verify dark-mode wireframe line thickness increases to 2.5 and remains visible during rotation.
