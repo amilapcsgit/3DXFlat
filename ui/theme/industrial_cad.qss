@@ -157,23 +157,27 @@ QWidget#CommandBar {
     border-bottom: 1px solid {BORDER};
 }
 
-QFrame#GroupCard {
-    background: {BG_PANEL};
-    border: 1px solid {BORDER};
-    border-radius: 10px;
+QFrame#Row1General,
+QFrame#Row2Workflow {
+    background: transparent;
+    border: none;
 }
 
-QLabel#GroupTitle {
-    color: {TEXT_SECONDARY};
-    font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 1px;
+QFrame#Row2Workflow {
+    border-top: 1px solid {BORDER};
 }
 
 QLabel#FieldLabel {
     color: {TEXT_PRIMARY};
     font-size: 12px;
     font-weight: 500;
+}
+
+QFrame#CommandSeparator {
+    background: {BORDER};
+    border: none;
+    min-width: 1px;
+    max-width: 1px;
 }
 
 QFrame#Field {
@@ -196,7 +200,16 @@ QSlider#Field {
     min-height: 20px;
 }
 
-QPushButton#PrimaryButton {
+QWidget#CommandBar QPushButton {
+    text-align: left;
+    padding-left: {SPACE_S}px;
+    padding-right: {SPACE_S}px;
+    border-radius: {RADIUS_BUTTON}px;
+    font-weight: 500;
+}
+
+QPushButton#PrimaryButton,
+QPushButton#btnRunFlattenPrimary {
     min-width: 172px;
     min-height: 48px;
     max-height: 48px;
@@ -208,19 +221,26 @@ QPushButton#PrimaryButton {
     font-weight: 700;
 }
 
-QPushButton#PrimaryButton:hover {
+QPushButton#PrimaryButton:hover,
+QPushButton#btnRunFlattenPrimary:hover {
     background: {ACCENT};
+    border: none;
 }
 
-QPushButton#PrimaryButton:pressed {
+QPushButton#PrimaryButton:pressed,
+QPushButton#PrimaryButton:checked,
+QPushButton#btnRunFlattenPrimary:pressed,
+QPushButton#btnRunFlattenPrimary:checked {
     background: {ACCENT};
+    border: none;
 }
 
-QPushButton#SecondaryButton {
-    min-width: 160px;
-    min-height: 44px;
-    max-height: 44px;
-    padding: 9px 12px;
+QPushButton#SecondaryButton,
+QPushButton#btnExportDxfSecondary {
+    min-width: 148px;
+    min-height: 48px;
+    max-height: 48px;
+    padding: 8px 12px;
     background: {BG_PANEL};
     border: 1px solid {ACCENT};
     border-radius: {RADIUS_BUTTON}px;
@@ -228,7 +248,16 @@ QPushButton#SecondaryButton {
     font-weight: 600;
 }
 
-QPushButton#SecondaryButton:hover {
+QPushButton#SecondaryButton:hover,
+QPushButton#btnExportDxfSecondary:hover {
+    background: {BG_HOVER};
+    border-color: {ACCENT};
+}
+
+QPushButton#SecondaryButton:pressed,
+QPushButton#SecondaryButton:checked,
+QPushButton#btnExportDxfSecondary:pressed,
+QPushButton#btnExportDxfSecondary:checked {
     background: {BG_HOVER};
     border-color: {ACCENT};
 }
@@ -269,4 +298,9 @@ QPushButton#ToggleButton:checked {
     border: 2px solid {ACCENT};
     padding: 7px 9px;
     background: {BG_HOVER};
+}
+
+QWidget#CommandBar QPushButton:disabled {
+    color: {TEXT_DISABLED};
+    border-color: {BORDER};
 }
