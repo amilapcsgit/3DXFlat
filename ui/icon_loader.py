@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from pathlib import Path
 
 from PySide6.QtCore import QSize
 from PySide6.QtGui import QColor, QIcon
@@ -35,6 +36,17 @@ def load_icon(name: str, size: int = tokens.ICON_SIZE, color: str | None = None)
 
 def load_brand_icon(name: str) -> QIcon:
     return QIcon(f":/brand/{name}")
+
+
+def load_icon_svg_file(path: str | Path, size: int = tokens.ICON_SIZE, color: str | None = None) -> QIcon:
+    color_value = QColor(color or tokens.TEXT_PRIMARY)
+    try:
+        svg_path = Path(path)
+        if not svg_path.exists():
+            return QIcon()
+        return themed_svg_icon(str(svg_path), color=color_value, size_px=size, opacity=1.0)
+    except Exception:
+        return QIcon()
 
 
 def load_icon_base64_svg(svg_b64: str, size: int = tokens.ICON_SIZE, color: str | None = None) -> QIcon:

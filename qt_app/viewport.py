@@ -12,7 +12,7 @@ from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QSize, QTimer, QVarian
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QRadialGradient, QVector3D, QVector4D, QRegion
 from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QLabel, QMenu, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 import trimesh
-from ui.icon_loader import IconRegistry
+from ui.icon_loader import IconRegistry, load_icon_svg_file
 from ui.theme import tokens
 
 
@@ -935,7 +935,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.hud_orbit_btn.setFixedSize(48, 48)
         self.hud_orbit_btn.setIconSize(QSize(32, 32))
         self.hud_orbit_btn.toggled.connect(self._toggle_orbit_mode)
-        orbit_icon = IconRegistry.get_icon("orbit", size=32, color=tokens.TEXT_PRIMARY)
+        orbit_icon = load_icon_svg_file("ui/icons/Industrial_SVG_Set_v1/orbit.svg", size=32, color=tokens.TEXT_PRIMARY)
         if not orbit_icon.isNull():
             self.hud_orbit_btn.setIcon(orbit_icon)
 
@@ -971,7 +971,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             """
         )
         self.floating_orbit_btn.setIconSize(QSize(32, 32))
-        floating_orbit_icon = IconRegistry.get_icon("orbit", size=32, color=tokens.ACCENT)
+        floating_orbit_icon = load_icon_svg_file("ui/icons/Industrial_SVG_Set_v1/orbit.svg", size=32, color=tokens.ACCENT)
         if not floating_orbit_icon.isNull():
             self.floating_orbit_btn.setIcon(floating_orbit_icon)
         self.floating_orbit_btn.dragStarted.connect(self._on_floating_orbit_drag_started)

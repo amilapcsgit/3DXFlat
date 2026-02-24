@@ -56,19 +56,19 @@ class UnifiedCommandBar(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self.setAutoFillBackground(True)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setMinimumHeight(128)
-        self.setMaximumHeight(128)
-        self.setFixedHeight(128)
+        self.setMinimumHeight(108)
+        self.setMaximumHeight(108)
+        self.setFixedHeight(108)
         self._icon_cache: dict[tuple[str, int, str], QIcon] = {}
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 8, 16, 8)
+        root.setContentsMargins(12, 8, 12, 8)
         root.setSpacing(8)
 
         self.row1_widget = QFrame(self)
         self.row1_widget.setObjectName("Row1General")
         self.row1_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.row1_widget.setFixedHeight(48)
+        self.row1_widget.setFixedHeight(40)
         self.row1_layout = QHBoxLayout(self.row1_widget)
         self.row1_layout.setContentsMargins(0, 0, 0, 0)
         self.row1_layout.setSpacing(8)
@@ -77,7 +77,7 @@ class UnifiedCommandBar(QWidget):
         self.row2_widget = QFrame(self)
         self.row2_widget.setObjectName("Row2Workflow")
         self.row2_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.row2_widget.setFixedHeight(56)
+        self.row2_widget.setFixedHeight(44)
         self.row2_layout = QHBoxLayout(self.row2_widget)
         self.row2_layout.setContentsMargins(0, 0, 0, 0)
         self.row2_layout.setSpacing(8)
@@ -164,12 +164,14 @@ class UnifiedCommandBar(QWidget):
             icon_size = 20
             min_width = 132
         else:
-            height = 48
+            height = 40
             icon_size = 22
             min_width = 132
 
         if kind == "primary":
             min_width = 168
+            if row == 2:
+                height = 44
         elif kind == "secondary":
             min_width = max(min_width, 148)
 
@@ -200,9 +202,6 @@ class UnifiedCommandBar(QWidget):
         self.btn_grid = self._button("Grid", "Grid", row=1, kind="toggle", checkable=True)
         self.btn_grid.setChecked(True)
 
-        self.btn_settings = self._button("Settings", "Settings", row=1)
-        self.btn_about = self._button("About", "About", row=1)
-
         units_field, units_row = self._field_shell(self.row1_widget, title="Units", icon_name="Method", row=1)
         self.units_combo = QComboBox(units_field)
         self.units_combo.setObjectName("Field")
@@ -222,15 +221,13 @@ class UnifiedCommandBar(QWidget):
         row.addWidget(self.btn_reset_view)
         row.addWidget(self.btn_wireframe)
         row.addWidget(self.btn_grid)
-        row.addSpacing(8)
+        row.addSpacing(12)
         row.addWidget(self._separator(self.row1_widget), 0, Qt.AlignmentFlag.AlignVCenter)
-        row.addSpacing(8)
+        row.addSpacing(12)
         row.addWidget(units_field, 0, Qt.AlignmentFlag.AlignVCenter)
         row.addWidget(self.scale_label, 0, Qt.AlignmentFlag.AlignVCenter)
         row.addWidget(self.mesh_info_label, 1, Qt.AlignmentFlag.AlignVCenter)
         row.addStretch(1)
-        row.addWidget(self.btn_settings)
-        row.addWidget(self.btn_about)
 
     def _build_row2_workflow(self) -> None:
         row = self.row2_layout
@@ -268,15 +265,15 @@ class UnifiedCommandBar(QWidget):
         row.addWidget(self.btn_invert)
         row.addWidget(self.btn_isolate)
         row.addWidget(self.btn_toggle_2d)
-        row.addSpacing(8)
+        row.addSpacing(12)
         row.addWidget(self._separator(self.row2_widget), 0, Qt.AlignmentFlag.AlignVCenter)
-        row.addSpacing(8)
+        row.addSpacing(12)
         row.addWidget(method_field, 0, Qt.AlignmentFlag.AlignVCenter)
         row.addWidget(self.btn_technical)
         row.addWidget(self.btn_edges)
-        row.addSpacing(8)
+        row.addSpacing(12)
         row.addWidget(self._separator(self.row2_widget), 0, Qt.AlignmentFlag.AlignVCenter)
-        row.addSpacing(8)
+        row.addSpacing(12)
         row.addWidget(self.btn_run_flatten)
         row.addWidget(self.btn_nest)
         row.addWidget(self.btn_export_dxf)

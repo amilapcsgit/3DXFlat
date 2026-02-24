@@ -151,10 +151,48 @@ QWidget#Preview2DPanel {
 }
 
 /* PH2 Unified Command Bar */
+QFrame#headerArea {
+    background: {BG_MAIN};
+    border: none;
+    border-bottom: 1px solid {BORDER};
+}
+
+QFrame#Row1SystemBar {
+    background: {BG_MAIN};
+    border: none;
+    border-bottom: 1px solid {BORDER};
+}
+
+QFrame#Row2CommandBar {
+    background: {BG_MAIN};
+    border: none;
+}
+
+QToolButton#SystemBarButton {
+    min-height: 24px;
+    max-height: 24px;
+    padding: 2px {SPACE_S}px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: {RADIUS_1}px;
+    color: {TEXT_SECONDARY};
+}
+
+QToolButton#SystemBarButton:hover {
+    background: {BG_HOVER};
+    border-color: {BORDER};
+    color: {TEXT_PRIMARY};
+}
+
+QToolButton#SystemBarButton:pressed {
+    background: {BG_PANEL};
+    border-color: {BORDER};
+    color: {TEXT_PRIMARY};
+}
+
 QWidget#CommandBar {
     background: {BG_MAIN};
-    border-top: 1px solid {BORDER};
-    border-bottom: 1px solid {BORDER};
+    border: none;
 }
 
 QFrame#Row1General,
@@ -211,9 +249,9 @@ QWidget#CommandBar QPushButton {
 QPushButton#PrimaryButton,
 QPushButton#btnRunFlattenPrimary {
     min-width: 172px;
-    min-height: 48px;
-    max-height: 48px;
-    padding: 10px 14px;
+    min-height: 44px;
+    max-height: 44px;
+    padding: 8px 14px;
     background: {ACCENT};
     border: none;
     border-radius: {RADIUS_BUTTON}px;
@@ -238,8 +276,8 @@ QPushButton#btnRunFlattenPrimary:checked {
 QPushButton#SecondaryButton,
 QPushButton#btnExportDxfSecondary {
     min-width: 148px;
-    min-height: 48px;
-    max-height: 48px;
+    min-height: 40px;
+    max-height: 40px;
     padding: 8px 12px;
     background: {BG_PANEL};
     border: 1px solid {ACCENT};

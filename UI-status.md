@@ -596,6 +596,17 @@ Known follow-up items (next phase):
 - Hidden compatibility controls should be removed only after the two-row layout is stable and all callbacks are confirmed in runtime
 - The PHASE 2 pixel spec has an internal height inconsistency (`row1 + row2 + padding + gap > total height`), so final runtime sizing should be validated visually rather than assuming all numbers can be satisfied simultaneously
 
+#### 5e. PHASE 2 Visual Parity Mode (Header Zoning Follow-up)
+
+Short changelog note:
+
+- Added **two-row header zoning** in `RibbonMainWindow`:
+  - `headerArea` (opaque container) with `Row1SystemBar` + `Row2CommandBar`
+- Added **header bottom border separation** (`1px`) via QSS on `headerArea`
+- Moved `Settings` / `About` into the thin system bar (Row1) to reduce command-row clutter
+- Kept `UnifiedCommandBar` as the only workflow command surface in Row2 (no tabs / no second toolbar)
+- Orbit HUD icon now loads from file path `ui/icons/Industrial_SVG_Set_v1/orbit.svg` (no Base64 path for HUD orbit)
+
 ## How the 3D Viewport Currently Works
 
 `ThreeDViewportWidget` (`qt_app/viewport.py`) extends `pyqtgraph.opengl.GLViewWidget` and manages:

@@ -48,7 +48,7 @@ from qt_app.mesh_io import load_mesh_file
 from qt_app.unified_command_bar import UnifiedCommandBar
 from qt_app.viewcube import ViewCubeWidget
 from qt_app.viewport import ThreeDViewportWidget
-from ui.icon_loader import IconRegistry
+from ui.icon_loader import load_icon_svg_file
 from ui.theme import tokens
 
 
@@ -491,8 +491,66 @@ class RibbonMainWindow(QMainWindow):
         self._position_viewcube()
         self._set_2d_preview_visible(False)
 
-        # PH2-S2: unified command bar becomes the only visible command surface.
-        self.unified_command_bar = UnifiedCommandBar(central)
+        # PH2-VP: zoned header area (Row1 system bar + Row2 command bar) is the
+        # only visible header/command surface above the viewport.
+        self.header_area = QFrame(central)
+        self.header_area.setObjectName("headerArea")
+        self.header_area.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.header_area.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.header_area.setAutoFillBackground(True)
+        self.header_area.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        header_layout = QVBoxLayout(self.header_area)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(0)
+
+        self.row1_system_bar = QFrame(self.header_area)
+        self.row1_system_bar.setObjectName("Row1SystemBar")
+        self.row1_system_bar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.row1_system_bar.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.row1_system_bar.setAutoFillBackground(True)
+        self.row1_system_bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.row1_system_bar.setFixedHeight(32)
+        row1_layout = QHBoxLayout(self.row1_system_bar)
+        row1_layout.setContentsMargins(12, 4, 12, 4)
+        row1_layout.setSpacing(8)
+
+        def _make_system_bar_button(text: str, icon_name: str) -> QToolButton:
+            btn = QToolButton(self.row1_system_bar)
+            btn.setObjectName("SystemBarButton")
+            btn.setText(text)
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setFixedHeight(24)
+            btn.setMinimumWidth(76)
+            icon = load_icon_svg_file(f"ui/icons/Industrial_SVG_Set_v1/{icon_name}.svg", size=16, color=tokens.TEXT_SECONDARY)
+            if not icon.isNull():
+                btn.setIcon(icon)
+                btn.setIconSize(QSize(16, 16))
+            return btn
+
+        self.system_settings_btn = _make_system_bar_button("Settings", "settings")
+        self.system_about_btn = _make_system_bar_button("About", "about")
+        row1_layout.addStretch(1)
+        row1_layout.addWidget(self.system_settings_btn)
+        row1_layout.addWidget(self.system_about_btn)
+
+        self.row2_command_bar = QFrame(self.header_area)
+        self.row2_command_bar.setObjectName("Row2CommandBar")
+        self.row2_command_bar.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.row2_command_bar.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.row2_command_bar.setAutoFillBackground(True)
+        self.row2_command_bar.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        row2_layout = QVBoxLayout(self.row2_command_bar)
+        row2_layout.setContentsMargins(0, 0, 0, 0)
+        row2_layout.setSpacing(0)
+
+        self.unified_command_bar = UnifiedCommandBar(self.row2_command_bar)
+        row2_layout.addWidget(self.unified_command_bar, 0)
+        self.row2_command_bar.setFixedHeight(self.unified_command_bar.height())
+
+        header_layout.addWidget(self.row1_system_bar, 0)
+        header_layout.addWidget(self.row2_command_bar, 0)
+        self.header_area.setFixedHeight(self.row1_system_bar.height() + self.row2_command_bar.height())
         self.ribbon = None
 
         # Compatibility aliases (callbacks are wired in PH2-S3).
@@ -522,8 +580,8 @@ class RibbonMainWindow(QMainWindow):
         self.nest_btn = bar.btn_nest
         self.export_btn_top = bar.btn_export_dxf
         self.export_btn_top.setObjectName("btnExportDxfSecondary")
-        self.settings_btn_top = bar.btn_settings
-        self.about_btn_top = bar.btn_about
+        self.settings_btn_top = self.system_settings_btn
+        self.about_btn_top = self.system_about_btn
         self.export_path_label = bar.export_path_label
 
         self.units_combo = bar.units_combo
@@ -537,7 +595,7 @@ class RibbonMainWindow(QMainWindow):
 
         self._wire_unified_command_bar_actions()
 
-        root.addWidget(self.unified_command_bar, 0)
+        root.addWidget(self.header_area, 0)
         root.addWidget(self.viewport_splitter, 1)
         root.setStretch(0, 0)
         root.setStretch(1, 10)
