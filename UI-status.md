@@ -507,6 +507,95 @@ What was not verified in-runtime during PHASE 2:
 - live button interaction in a running Qt app
 - visual parity against screenshots beyond code-level intent
 
+#### 5d. PHASE 2 Visual Parity Correction (Two-Row Command Surface Recovery)
+
+After the first PHASE 2 unification pass, a follow-up strict recovery cycle was required because the UI still showed layout glitches and visual mismatch against the target mock:
+
+- ghosted/clipped command groups
+- grouped-card matrix look (instead of a single continuous command surface)
+- inconsistent prominence for `Run Flatten` / `Export DXF`
+
+This second PHASE 2 cycle kept the same UI-only boundary (no algorithm/render-pipeline changes) and focused on **containment + layout structure + CTA hierarchy**.
+
+Files touched in the correction cycle:
+
+- `qt_app/unified_command_bar.py`
+- `qt_app/ribbon_window.py`
+- `ui/theme/industrial_cad.qss`
+- `UI-status.md`
+
+What was changed (implementation detail):
+
+1. Command bar containment/opacity hardening (`PH2-S1`)
+   - `UnifiedCommandBar` explicitly forced into normal layout flow as a fixed-height block:
+     - `QSizePolicy(Expanding, Fixed)`
+     - `setFixedHeight(128)`
+   - Enabled styled background painting and disabled translucency:
+     - `WA_StyledBackground = True`
+     - `WA_TranslucentBackground = False`
+     - `setAutoFillBackground(True)`
+   - Kept `RibbonMainWindow._build_ui()` layout order as:
+     - command bar first
+     - viewport splitter second (stretch=1)
+
+2. Replaced group-card matrix with exact two-row command surface (`PH2-S2`)
+   - `UnifiedCommandBar` no longer builds `VIEW/SELECT/FLATTEN/OUTPUT` card panels
+   - Rebuilt as two explicit horizontal rows:
+     - `Row1General`
+     - `Row2Workflow`
+   - Added thin `CommandSeparator` vertical lines and spacing instead of card containers
+   - Preserved compatibility widgets needed by existing window logic (`selected_label`, `quality_gauge`, `seam_slider`, `seam_label`, `export_path_label`) as hidden controls
+
+3. CTA prominence + label enforcement (`PH2-S3`)
+   - `Run Flatten` now uses explicit object name:
+     - `btnRunFlattenPrimary`
+   - `Export DXF` now uses explicit object name:
+     - `btnExportDxfSecondary`
+   - `UnifiedCommandBar` icon loader now supports color override so primary CTA icons render with `ON_ACCENT` tint
+   - `Show/Hide 2D Preview` label remains text-based and is updated by `RibbonMainWindow._set_2d_preview_visible(...)`
+
+4. Row-based QSS styling (`PH2-S4`)
+   - Replaced PH2 card-style QSS assumptions with row-based selectors:
+     - `QFrame#Row1General`
+     - `QFrame#Row2Workflow`
+     - `QFrame#CommandSeparator`
+   - Added CTA styles for:
+     - `QPushButton#btnRunFlattenPrimary`
+     - `QPushButton#btnExportDxfSecondary`
+   - Kept all command-bar controls as icon + label (no icon-only command buttons)
+
+Why the overlap/ghosting bug likely happened (root-cause analysis):
+
+- The earlier unified bar implementation used a **group-card matrix** (multiple nested panels) inside a command-bar container while the visual target required a continuous two-row strip.
+- The command bar background could also render inconsistently if Qt stylesheet background painting was not explicitly enabled on the widget (`WA_StyledBackground` / `setAutoFillBackground`).
+- Combined with a mismatched visual structure (cards inside a strip), this produced the "ghosted/clipped panel" appearance even though the layout order in `RibbonMainWindow._build_ui()` was already correct.
+
+Final structure (current PHASE 2 visual parity direction):
+
+- `Row1General`:
+  - `Import 3D`, `Reset View`, `Wireframe`, `Grid`
+  - units / scale / mesh info
+  - `Settings`, `About` (right side)
+- `Row2Workflow`:
+  - `Smart Select`, `Single Pick`, `Clear`, `Invert`, `Isolate`, `Show/Hide 2D Preview`
+  - `Method` field, `Technical`, `Edges`
+  - `Run Flatten`, `Nest`, `Export DXF`
+
+Correction cycle commits (strict step-gated):
+
+- `85d0598` `PH2-P0 checkpoint before visual parity fixes`
+- `fa30367` `PH2-S1: fix command bar containment and opacity`
+- `ce3c12c` `PH2-S2: refactor unified command bar into two rows`
+- `26a7096` `PH2-S3: enforce CTA hierarchy and labeled actions`
+- `20e14eb` `PH2-S4: style two-row command bar with theme tokens`
+- `PH2-S5` (this documentation/wiring verification step; see latest commit after this update)
+
+Known follow-up items (next phase):
+
+- Runtime visual tuning still needed against screenshots (spacing balance, exact widths, DPI behavior)
+- Hidden compatibility controls should be removed only after the two-row layout is stable and all callbacks are confirmed in runtime
+- The PHASE 2 pixel spec has an internal height inconsistency (`row1 + row2 + padding + gap > total height`), so final runtime sizing should be validated visually rather than assuming all numbers can be satisfied simultaneously
+
 ## How the 3D Viewport Currently Works
 
 `ThreeDViewportWidget` (`qt_app/viewport.py`) extends `pyqtgraph.opengl.GLViewWidget` and manages:
@@ -595,6 +684,10 @@ Key rendering flow:
    - A working `PySide6` runtime was not available in the execution environment when PHASE 2 was implemented.
    - Runtime UI regressions (layout clipping, size-policy issues, DPI alignment) must still be validated manually in the application.
 
+14. PHASE 2 visual parity correction uses hidden compatibility widgets.
+   - Some controls (e.g., seam slider / quality gauge / export-path label) remain instantiated but hidden to preserve legacy callback/state paths.
+   - This is deliberate during stabilization and should be cleaned once runtime behavior is confirmed.
+
 ## Validation Performed
 
 - Latest follow-up pass syntax checks:
@@ -609,6 +702,10 @@ Key rendering flow:
   - verified required unified-bar signal connections are present
   - verified `UnifiedCommandBar.ICON_MAP` files exist under `ui/icons/Industrial_SVG_Set_v1`
   - verified `UI-status.md` contains the PHASE 2 recovery section
+- PHASE 2 visual parity correction static audits:
+  - verified `UnifiedCommandBar` uses explicit `Row1General` / `Row2Workflow` rows (no `GroupCard` matrix in current implementation)
+  - verified `Run Flatten` / `Export DXF` CTA object names (`btnRunFlattenPrimary`, `btnExportDxfSecondary`)
+  - verified 2D Preview label toggle path still updates `Show/Hide 2D Preview`
 - Python syntax checks passed:
   - `qt_app/viewport.py`
   - `qt_app/ribbon_window.py`
@@ -620,6 +717,7 @@ Key rendering flow:
   - system `python` did not have `PySide6`
   - the project `.venv` Python launcher was not usable in this environment
   - therefore PHASE 2 completion tests were performed as static code audits instead of live UI interaction tests
+  - runtime screenshots requested for visual parity were not generated in this environment for the same reason
 
 ## Recommended Next Checks (Manual Runtime)
 
@@ -637,3 +735,5 @@ Key rendering flow:
 12. Verify no `Setup / Flatten / Production` tabs are visible and only one unified command bar is present.
 13. Verify every command bar action is icon + label (no icon-only commands).
 14. Verify `Run Flatten` is the primary CTA and `Export DXF` is secondary in the unified bar.
+15. Verify the command bar is a solid opaque block (no ghosted/clipped group panels) and the viewport begins directly below it.
+16. Verify the command surface is exactly two visible rows (General / Workflow) with no card-grid layout.
