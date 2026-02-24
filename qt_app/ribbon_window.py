@@ -45,6 +45,7 @@ from flatten_surface.flatten_surface import flatten_mesh
 from flatten_surface.import_export import get_unit_scale
 from nesting import build_nesting_layout, export_nesting_layout
 from qt_app.mesh_io import load_mesh_file
+from qt_app.unified_command_bar import UnifiedCommandBar
 from qt_app.viewcube import ViewCubeWidget
 from qt_app.viewport import ThreeDViewportWidget
 from ui.icon_loader import IconRegistry
@@ -491,10 +492,13 @@ class RibbonMainWindow(QMainWindow):
         self._position_viewcube()
         self._set_2d_preview_visible(False)
 
+        # PH2-S1 placeholder insertion: unified command bar is visible at top (no callback wiring yet).
+        self.unified_command_bar = UnifiedCommandBar(central)
         self.ribbon = self._build_ribbon()
         self.ribbon.setObjectName("SecondaryRibbon")
         strip_h = int(getattr(self, "_phase3_ribbon_strip_height", tokens.SECONDARY_STRIP_HEIGHT))
         self.ribbon.setFixedHeight(strip_h + tokens.TABS_HEIGHT)
+        root.addWidget(self.unified_command_bar, 0)
         root.addWidget(self.ribbon, 0)
         root.addWidget(self.viewport_splitter, 1)
         root.setStretch(0, 0)
