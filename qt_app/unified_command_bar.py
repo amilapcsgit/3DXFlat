@@ -56,13 +56,16 @@ class UnifiedCommandBar(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self.setAutoFillBackground(True)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setMinimumHeight(108)
-        self.setMaximumHeight(108)
-        self.setFixedHeight(108)
+        self.setMinimumHeight(88)
+        self.setMaximumHeight(88)
+        self.setFixedHeight(88)
         self._icon_cache: dict[tuple[str, int, str], QIcon] = {}
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 8, 12, 8)
+        # PH2-VP-S2: exact row2 height target (88px) with two internal 40px lines.
+        # The supplied pixel spec is internally inconsistent if top/bottom padding and an
+        # 8px inter-line gap are both applied. We preserve the two 40px lines + 8px gap.
+        root.setContentsMargins(12, 0, 12, 0)
         root.setSpacing(8)
 
         self.row1_widget = QFrame(self)
@@ -77,7 +80,7 @@ class UnifiedCommandBar(QWidget):
         self.row2_widget = QFrame(self)
         self.row2_widget.setObjectName("Row2Workflow")
         self.row2_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.row2_widget.setFixedHeight(44)
+        self.row2_widget.setFixedHeight(40)
         self.row2_layout = QHBoxLayout(self.row2_widget)
         self.row2_layout.setContentsMargins(0, 0, 0, 0)
         self.row2_layout.setSpacing(8)
@@ -170,13 +173,12 @@ class UnifiedCommandBar(QWidget):
 
         if kind == "primary":
             min_width = 168
-            if row == 2:
-                height = 44
         elif kind == "secondary":
             min_width = max(min_width, 148)
 
         btn.setMinimumHeight(height)
         btn.setMaximumHeight(height)
+        btn.setFixedHeight(height)
         btn.setMinimumWidth(min_width)
         icon_color = tokens.ON_ACCENT if kind == "primary" else tokens.TEXT_PRIMARY
         icon = self._load_icon(command_name, 32 if command_name == "Orbit HUD" else icon_size, color_hex=icon_color)
