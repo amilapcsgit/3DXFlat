@@ -514,13 +514,14 @@ class RibbonMainWindow(QMainWindow):
         self.show_edges_btn = bar.btn_edges
         self.selected_label = bar.selected_label
         self.run_flatten_btn_tab = bar.btn_run_flatten
-        self.run_flatten_btn_tab.setObjectName("btnRunFlatten")
+        self.run_flatten_btn_tab.setObjectName("btnRunFlattenPrimary")
         self.quality_gauge = bar.quality_gauge
 
         self.seam_slider = bar.seam_slider
         self.seam_label = bar.seam_label
         self.nest_btn = bar.btn_nest
         self.export_btn_top = bar.btn_export_dxf
+        self.export_btn_top.setObjectName("btnExportDxfSecondary")
         self.settings_btn_top = bar.btn_settings
         self.about_btn_top = bar.btn_about
         self.export_path_label = bar.export_path_label

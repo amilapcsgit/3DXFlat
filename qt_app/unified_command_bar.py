@@ -85,18 +85,18 @@ class UnifiedCommandBar(QWidget):
 
         self._build_rows()
 
-    def _load_icon(self, command_name: str, size_px: int) -> QIcon:
+    def _load_icon(self, command_name: str, size_px: int, *, color_hex: str | None = None) -> QIcon:
         filename = self.ICON_MAP.get(command_name, "")
         if not filename:
             return QIcon()
         path = (self.ICONS_DIR / filename).resolve()
         if not path.exists():
             return QIcon()
-        color_hex = tokens.TEXT_PRIMARY
-        cache_key = (str(path), int(size_px), color_hex)
+        resolved_color = color_hex or tokens.TEXT_PRIMARY
+        cache_key = (str(path), int(size_px), resolved_color)
         if cache_key in self._icon_cache:
             return self._icon_cache[cache_key]
-        icon = themed_svg_icon(str(path), color=QColor(color_hex), size_px=int(size_px), opacity=1.0)
+        icon = themed_svg_icon(str(path), color=QColor(resolved_color), size_px=int(size_px), opacity=1.0)
         self._icon_cache[cache_key] = icon
         return icon
 
@@ -176,7 +176,8 @@ class UnifiedCommandBar(QWidget):
         btn.setMinimumHeight(height)
         btn.setMaximumHeight(height)
         btn.setMinimumWidth(min_width)
-        icon = self._load_icon(command_name, 32 if command_name == "Orbit HUD" else icon_size)
+        icon_color = tokens.ON_ACCENT if kind == "primary" else tokens.TEXT_PRIMARY
+        icon = self._load_icon(command_name, 32 if command_name == "Orbit HUD" else icon_size, color_hex=icon_color)
         if not icon.isNull():
             btn.setIcon(icon)
             btn.setIconSize(QSize(icon_size, icon_size))
