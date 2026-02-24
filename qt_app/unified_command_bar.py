@@ -178,7 +178,7 @@ class UnifiedCommandBar(QWidget):
         grid.setHorizontalSpacing(8)
         grid.setVerticalSpacing(8)
 
-        self.btn_import_model = self._button("Import Model", "Import Model", kind="secondary")
+        self.btn_import_model = self._button("Import Model", "Import Model", kind="standard")
         self.btn_reset_view = self._button("Reset View", "Reset View")
         self.btn_wireframe = self._button("Wireframe", "Wireframe", kind="toggle", checkable=True)
         self.btn_grid = self._button("Grid", "Grid", kind="toggle", checkable=True)

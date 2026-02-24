@@ -149,3 +149,124 @@ QFrame#Preview2DHeader {
 QWidget#Preview2DPanel {
     background: {P2D_BG};
 }
+
+/* PH2 Unified Command Bar */
+QWidget#CommandBar {
+    background: {BG_MAIN};
+    border-top: 1px solid {BORDER};
+    border-bottom: 1px solid {BORDER};
+}
+
+QFrame#GroupCard {
+    background: {BG_PANEL};
+    border: 1px solid {BORDER};
+    border-radius: 10px;
+}
+
+QLabel#GroupTitle {
+    color: {TEXT_SECONDARY};
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1px;
+}
+
+QLabel#FieldLabel {
+    color: {TEXT_PRIMARY};
+    font-size: 12px;
+    font-weight: 500;
+}
+
+QFrame#Field {
+    background: {BG_MAIN};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_BUTTON}px;
+}
+
+QComboBox#Field {
+    min-height: 32px;
+    max-height: 32px;
+    min-width: 160px;
+    padding: 0px {SPACE_S}px;
+    background: {BG_PANEL};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_BUTTON}px;
+}
+
+QSlider#Field {
+    min-height: 20px;
+}
+
+QPushButton#PrimaryButton {
+    min-width: 172px;
+    min-height: 48px;
+    max-height: 48px;
+    padding: 10px 14px;
+    background: {ACCENT};
+    border: none;
+    border-radius: {RADIUS_BUTTON}px;
+    color: {ON_ACCENT};
+    font-weight: 700;
+}
+
+QPushButton#PrimaryButton:hover {
+    background: {ACCENT};
+}
+
+QPushButton#PrimaryButton:pressed {
+    background: {ACCENT};
+}
+
+QPushButton#SecondaryButton {
+    min-width: 160px;
+    min-height: 44px;
+    max-height: 44px;
+    padding: 9px 12px;
+    background: {BG_PANEL};
+    border: 1px solid {ACCENT};
+    border-radius: {RADIUS_BUTTON}px;
+    color: {TEXT_PRIMARY};
+    font-weight: 600;
+}
+
+QPushButton#SecondaryButton:hover {
+    background: {BG_HOVER};
+    border-color: {ACCENT};
+}
+
+QPushButton#StandardButton {
+    min-width: 132px;
+    min-height: 40px;
+    max-height: 40px;
+    padding: 8px 10px;
+    background: {BG_PANEL};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_BUTTON}px;
+    color: {TEXT_PRIMARY};
+    font-weight: 500;
+}
+
+QPushButton#StandardButton:hover {
+    background: {BG_HOVER};
+}
+
+QPushButton#ToggleButton {
+    min-width: 132px;
+    min-height: 40px;
+    max-height: 40px;
+    padding: 8px 10px;
+    background: {BG_PANEL};
+    border: 1px solid {BORDER};
+    border-radius: {RADIUS_BUTTON}px;
+    color: {TEXT_PRIMARY};
+    font-weight: 500;
+}
+
+QPushButton#ToggleButton:hover {
+    background: {BG_HOVER};
+}
+
+QPushButton#ToggleButton:checked {
+    border: 2px solid {ACCENT};
+    padding: 7px 9px;
+    background: {BG_HOVER};
+}
