@@ -52,12 +52,18 @@ class UnifiedCommandBar(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("CommandBar")
+        # PH2-S1: command bar must be a solid layout block, not a translucent/overlay surface.
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.setAutoFillBackground(True)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setFixedHeight(152)
+        self.setMinimumHeight(128)
+        self.setMaximumHeight(128)
+        self.setFixedHeight(128)
         self._icon_cache: dict[tuple[str, int, str], QIcon] = {}
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 12, 16, 12)
+        root.setContentsMargins(16, 8, 16, 8)
         root.setSpacing(8)
 
         self._row1 = QHBoxLayout()
