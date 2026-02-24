@@ -154,16 +154,16 @@ QWidget#Preview2DPanel {
 QFrame#headerArea {
     background: {BG_MAIN};
     border: none;
-    border-bottom: 1px solid {BORDER};
+    border-bottom: 1px solid #3A4048;
 }
 
-QFrame#Row1SystemBar {
-    background: {BG_MAIN};
+QFrame#row1SystemBar {
+    background: #1A1D21;
     border: none;
-    border-bottom: 1px solid {BORDER};
+    border-bottom: 1px solid #3A4048;
 }
 
-QFrame#Row2CommandBar {
+QWidget#row2CommandBar {
     background: {BG_MAIN};
     border: none;
 }
@@ -190,7 +190,8 @@ QToolButton#SystemBarButton:pressed {
     color: {TEXT_PRIMARY};
 }
 
-QWidget#CommandBar {
+QWidget#CommandBar,
+QWidget#row2CommandBar {
     background: {BG_MAIN};
     border: none;
 }
@@ -238,7 +239,8 @@ QSlider#Field {
     min-height: 20px;
 }
 
-QWidget#CommandBar QPushButton {
+QWidget#CommandBar QPushButton,
+QWidget#row2CommandBar QPushButton {
     text-align: left;
     padding-left: {SPACE_S}px;
     padding-right: {SPACE_S}px;
@@ -338,7 +340,8 @@ QPushButton#ToggleButton:checked {
     background: {BG_HOVER};
 }
 
-QWidget#CommandBar QPushButton:disabled {
+QWidget#CommandBar QPushButton:disabled,
+QWidget#row2CommandBar QPushButton:disabled {
     color: {TEXT_DISABLED};
     border-color: {BORDER};
 }
