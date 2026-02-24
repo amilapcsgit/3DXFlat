@@ -9,7 +9,7 @@ This repository's UI is **Python**, not C++:
 - **2D preview / nesting canvas:** `QGraphicsView` / `QGraphicsScene`
 - **Styling:** global Qt stylesheet (QSS) via `ui/theme/apply_theme.py` + `ui/theme/industrial_cad.qss`
 
-The recent work maps the `ui-enhance-v2.md` C++ `QOpenGLWidget` instructions to the equivalent Python/pyqtgraph implementation.
+The recent work maps the `dev/specs/ui-enhance-v2.md` C++ `QOpenGLWidget` instructions to the equivalent Python/pyqtgraph implementation.
 
 ## Main UI Files (Current)
 
@@ -134,8 +134,8 @@ Result:
 Implemented in:
 
 - `ui/theme/apply_theme.py`
-  - Appends a **global QSS override block** derived from `ui-enhance-v2.md`
-  - Cross-referenced `ui-enhance.md` viewport `QOpenGLWidget` styling logic
+  - Appends a **global QSS override block** derived from `dev/specs/ui-enhance-v2.md`
+  - Cross-referenced `dev/specs/ui-enhance.md` viewport `QOpenGLWidget` styling logic
 - `qt_app/ribbon_window.py`
   - Run Flatten button object name changed from `primaryAction` to `btnRunFlatten`
 - `ui/icon_loader.py`
@@ -195,7 +195,7 @@ Result:
 
 ### 4b. Phase 3 Cleanup Finalization (Singleton Ribbon + Ghost Orbit HUD)
 
-Follow-up cleanup (after screenshot review + `ui-cleanup-final.md`) corrected several Phase 3 regressions:
+Follow-up cleanup (after screenshot review + `dev/specs/ui-cleanup-final.md`) corrected several Phase 3 regressions:
 
 - Removed duplicated **Import** / **Run Flatten** actions from the top toolbar
   - these actions now exist only once in the ribbon tabs
@@ -215,7 +215,7 @@ Follow-up cleanup (after screenshot review + `ui-cleanup-final.md`) corrected se
 
 ### 4c. Hard Refactor Finalization (Ribbon Consolidation + Icon Registry)
 
-Follow-up hard refactor (after `ui-refactor-final.md`) replaced the ad-hoc Phase 3 ribbon/HUD layout code with a consolidated implementation.
+Follow-up hard refactor (after `dev/specs/ui-refactor-final.md`) replaced the ad-hoc Phase 3 ribbon/HUD layout code with a consolidated implementation.
 
 Implemented in:
 
@@ -424,7 +424,7 @@ Execution model used:
   - `UI-status.md`
   - `Industrial_CAD_Theme_v1.md`
   - `UI_Refinement_Phase_1.md`
-  - `UI-recovery-plan.md`
+  - `dev/specs/UI-recovery-plan.md`
   - `ui/icons/Industrial_SVG_Set_v1/README.md`
 - Step gating:
   - `PH2-S1` through `PH2-S5` executed in order
@@ -632,7 +632,7 @@ Key rendering flow:
 
 ## Known Bugs / Risks / Limitations (Current)
 
-1. `ui-enhance-v2.md` formatting is malformed/escaped.
+1. `dev/specs/ui-enhance-v2.md` formatting is malformed/escaped.
    - The file mixes escaped markdown and QSS text inside a code block after the wireframe snippet.
    - The intent was implemented, but future agents should treat it as a spec, not executable code.
 

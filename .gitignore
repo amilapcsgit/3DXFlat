@@ -87,3 +87,6 @@ node_modules/
 
 # Future license bundle folder (generated at build time)
 licenses/
+
+# Local development artifacts / prompts / screenshots / scratch outputs
+dev/
