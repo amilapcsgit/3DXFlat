@@ -165,16 +165,17 @@ class UnifiedCommandBar(QWidget):
         if row == 1:
             height = 40
             icon_size = 20
-            min_width = 132
+            min_width = 120
         else:
             height = 40
-            icon_size = 22
-            min_width = 132
+            icon_size = 20
+            min_width = 120
 
         if kind == "primary":
-            min_width = 168
+            min_width = 160
+            icon_size = 24
         elif kind == "secondary":
-            min_width = max(min_width, 148)
+            min_width = max(min_width, 140)
 
         btn.setMinimumHeight(height)
         btn.setMaximumHeight(height)
