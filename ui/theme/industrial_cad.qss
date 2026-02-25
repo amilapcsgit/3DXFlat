@@ -56,7 +56,6 @@ QTabBar::tab:selected {
 
 QPushButton, QToolButton {
     min-height: {TOOL_BUTTON_HEIGHT}px;
-    max-height: {TOOL_BUTTON_HEIGHT}px;
     padding: 0px {SPACE_M}px;
     background: {BG_PANEL};
     border: 1px solid {BORDER};
@@ -292,3 +291,6 @@ QWidget#CommandBar QPushButton:disabled {
     color: {TEXT_DISABLED};
     border-color: {BORDER};
 }
+
+/* Visibility and Contrast Fix */
+#CommandBar QToolButton { color: #E5E9F0 !important; }

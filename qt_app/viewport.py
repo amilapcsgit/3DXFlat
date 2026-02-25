@@ -11,7 +11,7 @@ import pyqtgraph.opengl as gl
 from pyqtgraph.opengl import shaders as gl_shaders
 from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QSize, QTimer, QVariantAnimation, Qt, Signal
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QRadialGradient, QVector3D, QVector4D, QRegion
-from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QLabel, QMenu, QSizePolicy, QToolButton, QWidget
+from PySide6.QtWidgets import QStyle, QGraphicsOpacityEffect, QHBoxLayout, QLabel, QMenu, QSizePolicy, QToolButton, QWidget
 import trimesh
 from ui.icons.svg_icon import themed_svg_icon
 from ui.icon_loader import IconRegistry
@@ -980,6 +980,9 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             floating_orbit_icon = IconRegistry.get_icon("orbit", size=32, color=tokens.ACCENT)
         if not floating_orbit_icon.isNull():
             self.floating_orbit_btn.setIcon(floating_orbit_icon)
+        else:
+            # Fallback to standard Qt icon if SVG loading fails
+            self.floating_orbit_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TitleBarMenuButton))
         self.floating_orbit_btn.dragStarted.connect(self._on_floating_orbit_drag_started)
         self.floating_orbit_btn.dragMoved.connect(self._on_floating_orbit_drag_moved)
         self.floating_orbit_btn.dragFinished.connect(self._on_floating_orbit_drag_finished)

@@ -14,3 +14,7 @@
 ## 2026-02-25 - [Structural vertical zoning for High-DPI CAD headers]
 **Learning:** Professional industrial applications require distinct vertical zoning. A two-row header with a thin system bar (36px) for status/settings and a tall command bar (80px) for primary workflow tools (using text-under-icon styling) significantly improves readability and "gravity" of the interface on high-resolution displays.
 **Action:** When a toolbar feels cluttered, move utility/status widgets to a dedicated top system bar and expand the main action buttons to a text-under-icon layout.
+
+## 2026-02-25 - [Preventing label clipping in high-density QToolButton layouts]
+**Learning:** When using `ToolButtonTextUnderIcon` style in high-density CAD headers, standard vertical spacing is often insufficient. Qt may silently hide labels if the button geometry is even 1-2 pixels too small. Increasing container height (e.g., from 80px to 90px) and explicitly resetting margins/padding on individual buttons is necessary to guarantee text visibility across different OS scaling settings.
+**Action:** Always provide at least 10-15px of vertical "buffer" beyond the icon+label height when using stacked button layouts.

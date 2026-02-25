@@ -57,14 +57,24 @@ class UnifiedCommandBar(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         # STRUCTURAL REFACTOR: Two-Row High-DPI Header
-        self.setFixedHeight(116)
+        # Adjusted total height to 146px (36 Row1 + 110 Row2) to fix clipping
+        self.setFixedHeight(146)
         self.headerArea = QFrame(self)
         self.headerArea.setObjectName("headerArea")
-        self.headerArea.setFixedHeight(116)
+        self.headerArea.setFixedHeight(146)
         self.headerArea.setStyleSheet(f"""
             QFrame#headerArea {{
                 border-bottom: 1px solid #3A4048;
                 background-color: {tokens.BG_MAIN};
+            }}
+            #CommandBar QToolButton {{
+                color: #E5E9F0 !important;
+                max-height: none;
+                border: none;
+                border-radius: 4px;
+            }}
+            #CommandBar QToolButton:hover {{
+                background-color: {tokens.BG_HOVER};
             }}
         """)
 
@@ -86,14 +96,14 @@ class UnifiedCommandBar(QWidget):
         self.row1_layout.setContentsMargins(16, 0, 16, 0)
         self.row1_layout.setSpacing(8)
 
-        # Row 2 (Main Command Bar): 80px
+        # Row 2 (Main Command Bar): 110px
         self.row2_widget = QFrame(self.headerArea)
         self.row2_widget.setObjectName("Row2CommandBar")
-        self.row2_widget.setFixedHeight(80)
+        self.row2_widget.setFixedHeight(110)
         self.row2_widget.setStyleSheet("background-color: transparent; border: none;")
         self.row2_layout = QHBoxLayout(self.row2_widget)
         self.row2_layout.setContentsMargins(16, 4, 16, 4)
-        self.row2_layout.setSpacing(6)
+        self.row2_layout.setSpacing(4)
 
         header_layout.addWidget(self.row1_widget)
         header_layout.addWidget(self.row2_widget)
@@ -123,21 +133,32 @@ class UnifiedCommandBar(QWidget):
         line.setFrameShape(QFrame.Shape.VLine)
         line.setFrameShadow(QFrame.Shadow.Plain)
         line.setLineWidth(1)
-        line.setFixedHeight(24)
+        line.setFixedHeight(32)
         line.setStyleSheet(f"background-color: {tokens.BORDER}; border: none;")
         return line
 
-    def _field_shell(self, parent: QWidget, *, title: str, icon_name: str, row: int) -> tuple[QFrame, QHBoxLayout]:
+    def _field_shell(self, parent: QWidget, *, title: str, icon_name: str, row: int) -> tuple[QFrame, QHBoxLayout | QVBoxLayout]:
         frame = QFrame(parent)
         frame.setObjectName("Field")
-        frame.setFixedHeight(24 if row == 1 else 30)
+
+        if row == 1:
+            frame.setFixedHeight(26)
+            layout = QHBoxLayout(frame)
+            layout.setContentsMargins(6, 0, 6, 0)
+            layout.setSpacing(4)
+        else:
+            frame.setFixedHeight(100)
+            layout = QVBoxLayout(frame)
+            layout.setContentsMargins(4, 4, 4, 4)
+            layout.setSpacing(2)
+
         frame.setStyleSheet(f"QFrame#Field {{ background-color: #2A2F36; border: 1px solid {tokens.BORDER}; border-radius: 4px; }}")
-        layout = QHBoxLayout(frame)
-        layout.setContentsMargins(6, 0, 6, 0)
-        layout.setSpacing(4)
+
         title_label = QLabel(title, frame)
-        title_label.setStyleSheet(f"color: {tokens.TEXT_SECONDARY}; font-size: 11px;")
+        title_label.setStyleSheet(f"color: {tokens.TEXT_SECONDARY}; font-size: 11px; font-weight: bold;")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title_label)
+
         return frame, layout
 
     def _button(
@@ -154,23 +175,24 @@ class UnifiedCommandBar(QWidget):
             btn = QToolButton(self)
             btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
             font = btn.font()
-            font.setPointSize(10)
+            font.setPointSize(9)
             font.setWeight(QFont.Weight.DemiBold)
             btn.setFont(font)
 
             if command_name in ["Run Flatten", "Import Model", "Export DXF"]:
-                btn.setFixedSize(90, 72)
+                btn.setFixedSize(110, 100)
                 icon_size = 32
             else:
-                btn.setMinimumWidth(100)
-                btn.setFixedHeight(72)
+                btn.setFixedWidth(68)
+                btn.setFixedHeight(100)
                 icon_size = 24
 
             btn.setIconSize(QSize(icon_size, icon_size))
+            btn.setContentsMargins(2, 2, 2, 2)
         else:
             btn = QPushButton(label, self)
             btn.setFixedHeight(28)
-            btn.setMinimumWidth(80)
+            btn.setFixedWidth(68)
             icon_size = 16
 
         if object_name:
@@ -274,16 +296,17 @@ class UnifiedCommandBar(QWidget):
         self.method_combo = QComboBox(method_field)
         self.method_combo.addItems(["ARAP", "LSCM"])
         self.method_combo.setMinimumWidth(80)
-        self.method_combo.setStyleSheet("background: transparent; border: none;")
+        self.method_combo.setStyleSheet("background-color: transparent; border: 1px solid #3A4048; border-radius: 4px; padding: 2px;")
         method_row.addWidget(self.method_combo)
 
         seam_field, seam_row = self._field_shell(self.row2_widget, title="Seam", icon_name="Isolate", row=2)
         self.seam_slider = QSlider(Qt.Orientation.Horizontal, seam_field)
         self.seam_slider.setRange(0, 50)
         self.seam_slider.setValue(12)
-        self.seam_slider.setMinimumWidth(60)
+        self.seam_slider.setMinimumWidth(80)
         self.seam_label = QLabel("12mm", seam_field)
-        self.seam_label.setStyleSheet("font-size: 10px;")
+        self.seam_label.setStyleSheet("font-size: 10px; font-weight: bold;")
+        self.seam_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         seam_row.addWidget(self.seam_slider)
         seam_row.addWidget(self.seam_label)
 
@@ -316,6 +339,12 @@ class UnifiedCommandBar(QWidget):
         row.addWidget(self.btn_nest)
         row.addWidget(self.btn_export_dxf)
         row.addStretch(1)
+
+        # Force ToolButtonTextUnderIcon style and label visibility
+        for i in range(row.count()):
+            item = row.itemAt(i)
+            if item and (widget := item.widget()) and isinstance(widget, QToolButton):
+                widget.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
 
     def _build_hidden_compat_controls(self) -> None:
         self.selected_label = QLabel("Selected: 0", self)
