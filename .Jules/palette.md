@@ -10,3 +10,7 @@
 ## 2026-02-25 - [Compact UI and Typography Optimization]
 **Learning:** For professional CAD applications, vertical real estate is at a premium. Reducing toolbars by ~30% and using a condensed font (Roboto Condensed) significantly improves the usable geometry workspace and reduces visual "bulk".
 **Action:** When a UI feels "unbalanced" or "heavy", prefer compacting heights and using tighter typography before removing features.
+
+## 2026-02-25 - [Structural vertical zoning for High-DPI CAD headers]
+**Learning:** Professional industrial applications require distinct vertical zoning. A two-row header with a thin system bar (36px) for status/settings and a tall command bar (80px) for primary workflow tools (using text-under-icon styling) significantly improves readability and "gravity" of the interface on high-resolution displays.
+**Action:** When a toolbar feels cluttered, move utility/status widgets to a dedicated top system bar and expand the main action buttons to a text-under-icon layout.

@@ -3,13 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QColor, QIcon
+from PySide6.QtGui import QColor, QIcon, QFont
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QToolButton,
     QProgressBar,
     QSizePolicy,
     QSlider,
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (
 
 from ui.icons.svg_icon import themed_svg_icon
 from ui.theme import tokens
+from ui.icon_loader import IconRegistry
 
 
 class UnifiedCommandBar(QWidget):
@@ -51,41 +53,52 @@ class UnifiedCommandBar(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("CommandBar")
-        # PH2-S1: force the command bar to paint as an opaque block in the normal layout flow.
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        self.setAutoFillBackground(True)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-        # PH2-UX: Compact height (~30% reduction)
-        compact_height = 92
-        self.setMinimumHeight(compact_height)
-        self.setMaximumHeight(compact_height)
-        self.setFixedHeight(compact_height)
-        self._icon_cache: dict[tuple[str, int, str], QIcon] = {}
+        # STRUCTURAL REFACTOR: Two-Row High-DPI Header
+        self.setFixedHeight(116)
+        self.headerArea = QFrame(self)
+        self.headerArea.setObjectName("headerArea")
+        self.headerArea.setFixedHeight(116)
+        self.headerArea.setStyleSheet(f"""
+            QFrame#headerArea {{
+                border-bottom: 1px solid #3A4048;
+                background-color: {tokens.BG_MAIN};
+            }}
+        """)
 
-        root = QVBoxLayout(self)
-        root.setContentsMargins(16, 4, 16, 4)
-        root.setSpacing(4)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        main_layout.addWidget(self.headerArea)
 
-        self.row1_widget = QFrame(self)
-        self.row1_widget.setObjectName("Row1General")
-        self.row1_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.row1_widget.setFixedHeight(34)
+        header_layout = QVBoxLayout(self.headerArea)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(0)
+
+        # Row 1 (System Bar): 36px, #1A1D21
+        self.row1_widget = QFrame(self.headerArea)
+        self.row1_widget.setObjectName("Row1SystemBar")
+        self.row1_widget.setFixedHeight(36)
+        self.row1_widget.setStyleSheet("background-color: #1A1D21; border: none;")
         self.row1_layout = QHBoxLayout(self.row1_widget)
-        self.row1_layout.setContentsMargins(0, 0, 0, 0)
-        self.row1_layout.setSpacing(6)
-        root.addWidget(self.row1_widget, 0)
+        self.row1_layout.setContentsMargins(16, 0, 16, 0)
+        self.row1_layout.setSpacing(8)
 
-        self.row2_widget = QFrame(self)
-        self.row2_widget.setObjectName("Row2Workflow")
-        self.row2_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.row2_widget.setFixedHeight(40)
+        # Row 2 (Main Command Bar): 80px
+        self.row2_widget = QFrame(self.headerArea)
+        self.row2_widget.setObjectName("Row2CommandBar")
+        self.row2_widget.setFixedHeight(80)
+        self.row2_widget.setStyleSheet("background-color: transparent; border: none;")
         self.row2_layout = QHBoxLayout(self.row2_widget)
-        self.row2_layout.setContentsMargins(0, 0, 0, 0)
+        self.row2_layout.setContentsMargins(16, 4, 16, 4)
         self.row2_layout.setSpacing(6)
-        root.addWidget(self.row2_widget, 0)
 
+        header_layout.addWidget(self.row1_widget)
+        header_layout.addWidget(self.row2_widget)
+
+        self._icon_cache: dict[tuple[str, int, str], QIcon] = {}
         self._build_rows()
 
     def _load_icon(self, command_name: str, size_px: int, *, color_hex: str | None = None) -> QIcon:
@@ -94,7 +107,8 @@ class UnifiedCommandBar(QWidget):
             return QIcon()
         path = (self.ICONS_DIR / filename).resolve()
         if not path.exists():
-            return QIcon()
+            return IconRegistry.get_icon(command_name, size=size_px, color=color_hex)
+
         resolved_color = color_hex or tokens.TEXT_PRIMARY
         cache_key = (str(path), int(size_px), resolved_color)
         if cache_key in self._icon_cache:
@@ -109,31 +123,21 @@ class UnifiedCommandBar(QWidget):
         line.setFrameShape(QFrame.Shape.VLine)
         line.setFrameShadow(QFrame.Shadow.Plain)
         line.setLineWidth(1)
-        line.setMidLineWidth(0)
         line.setFixedHeight(24)
-        line.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        line.setStyleSheet(f"background-color: {tokens.BORDER}; border: none;")
         return line
 
     def _field_shell(self, parent: QWidget, *, title: str, icon_name: str, row: int) -> tuple[QFrame, QHBoxLayout]:
         frame = QFrame(parent)
         frame.setObjectName("Field")
-        frame.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
-        frame.setFixedHeight(24)
+        frame.setFixedHeight(24 if row == 1 else 30)
+        frame.setStyleSheet(f"QFrame#Field {{ background-color: #2A2F36; border: 1px solid {tokens.BORDER}; border-radius: 4px; }}")
         layout = QHBoxLayout(frame)
         layout.setContentsMargins(6, 0, 6, 0)
         layout.setSpacing(4)
-
-        icon_label = QLabel(frame)
-        icon_size = 16 if row == 1 else 18
-        icon = self._load_icon(icon_name, icon_size)
-        if not icon.isNull():
-            icon_label.setPixmap(icon.pixmap(icon_size, icon_size))
-        icon_label.setFixedSize(icon_size, icon_size)
-        layout.addWidget(icon_label, 0, Qt.AlignmentFlag.AlignVCenter)
-
         title_label = QLabel(title, frame)
-        title_label.setObjectName("FieldLabel")
-        layout.addWidget(title_label, 0, Qt.AlignmentFlag.AlignVCenter)
+        title_label.setStyleSheet(f"color: {tokens.TEXT_SECONDARY}; font-size: 11px;")
+        layout.addWidget(title_label)
         return frame, layout
 
     def _button(
@@ -145,8 +149,30 @@ class UnifiedCommandBar(QWidget):
         kind: str = "standard",
         checkable: bool = False,
         object_name: str | None = None,
-    ) -> QPushButton:
-        btn = QPushButton(label, self)
+    ) -> QToolButton | QPushButton:
+        if row == 2:
+            btn = QToolButton(self)
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+            font = btn.font()
+            font.setPointSize(10)
+            font.setWeight(QFont.Weight.DemiBold)
+            btn.setFont(font)
+
+            if command_name in ["Run Flatten", "Import Model", "Export DXF"]:
+                btn.setFixedSize(90, 72)
+                icon_size = 32
+            else:
+                btn.setMinimumWidth(100)
+                btn.setFixedHeight(72)
+                icon_size = 24
+
+            btn.setIconSize(QSize(icon_size, icon_size))
+        else:
+            btn = QPushButton(label, self)
+            btn.setFixedHeight(28)
+            btn.setMinimumWidth(80)
+            icon_size = 16
+
         if object_name:
             btn.setObjectName(object_name)
         elif kind == "primary":
@@ -158,33 +184,14 @@ class UnifiedCommandBar(QWidget):
         else:
             btn.setObjectName("StandardButton")
 
+        btn.setText(label)
         btn.setCheckable(checkable)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
 
-        # PH2-UX: Compact dimensions
-        if row == 1:
-            height = 28
-            icon_size = 16
-            min_width = 100
-        else:
-            height = 34
-            icon_size = 18
-            min_width = 90
-
-        if kind == "primary":
-            min_width = 130
-        elif kind == "secondary":
-            min_width = max(min_width, 110)
-
-        btn.setMinimumHeight(height)
-        btn.setMaximumHeight(height)
-        btn.setMinimumWidth(min_width)
         icon_color = tokens.ON_ACCENT if kind == "primary" else tokens.TEXT_PRIMARY
-        icon = self._load_icon(command_name, 24 if command_name == "Orbit HUD" else icon_size, color_hex=icon_color)
+        icon = self._load_icon(command_name, icon_size, color_hex=icon_color)
         if not icon.isNull():
             btn.setIcon(icon)
-            btn.setIconSize(QSize(icon_size, icon_size))
         return btn
 
     def _build_rows(self) -> None:
@@ -195,51 +202,53 @@ class UnifiedCommandBar(QWidget):
     def _build_row1_general(self) -> None:
         row = self.row1_layout
 
-        self.btn_import_model = self._button("Import 3D", "Import Model", row=1)
-        self.btn_reset_view = self._button("Reset View", "Reset View", row=1)
-        self.btn_wireframe = self._button("Wireframe", "Wireframe", row=1, kind="toggle", checkable=True)
-        self.btn_grid = self._button("Grid", "Grid", row=1, kind="toggle", checkable=True)
-        self.btn_grid.setChecked(True)
-
         self.btn_settings = self._button("Settings", "Settings", row=1)
         self.btn_about = self._button("About", "About", row=1)
 
-        units_field, units_row = self._field_shell(self.row1_widget, title="Units", icon_name="Method", row=1)
-        self.units_combo = QComboBox(units_field)
-        self.units_combo.setObjectName("Field")
-        self.units_combo.addItems(["mm", "cm", "m", "inch"])
-        self.units_combo.setCurrentText("mm")
-        self.units_combo.setMinimumWidth(70)
-        self.units_combo.setFixedHeight(22)
-        units_row.addWidget(self.units_combo, 0, Qt.AlignmentFlag.AlignVCenter)
-
         self.scale_label = QLabel("Scale: -", self.row1_widget)
-        self.scale_label.setObjectName("FieldLabel")
+        self.scale_label.setStyleSheet(f"color: {tokens.TEXT_SECONDARY}; font-size: 11px;")
         self.mesh_info_label = QLabel("Mesh: -", self.row1_widget)
-        self.mesh_info_label.setObjectName("FieldLabel")
-        self.mesh_info_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.mesh_info_label.setStyleSheet(f"color: {tokens.TEXT_SECONDARY}; font-size: 11px;")
 
-        # PH2-UX: Quality gauge restored to Row 1 for immediate feedback.
         self.quality_gauge = QProgressBar(self.row1_widget)
-        self.quality_gauge.setObjectName("Field")
+        self.quality_gauge.setObjectName("QualityGauge")
         self.quality_gauge.setRange(0, 100)
         self.quality_gauge.setValue(0)
         self.quality_gauge.setFormat("Quality: -")
         self.quality_gauge.setFixedWidth(240)
         self.quality_gauge.setFixedHeight(22)
         self.quality_gauge.setToolTip("Weighted mesh quality score based on area error and strain.")
+        self.quality_gauge.setStyleSheet(f"""
+            QProgressBar {{
+                background-color: #2A2F36;
+                border: 1px solid {tokens.BORDER};
+                border-radius: 4px;
+                text-align: center;
+                color: white;
+                font-size: 10px;
+                font-weight: bold;
+            }}
+            QProgressBar::chunk {{
+                background-color: {tokens.ACCENT};
+                border-radius: 3px;
+            }}
+        """)
 
-        row.addWidget(self.btn_import_model)
-        row.addWidget(self.btn_reset_view)
-        row.addWidget(self.btn_wireframe)
-        row.addWidget(self.btn_grid)
-        row.addSpacing(6)
-        row.addWidget(self._separator(self.row1_widget), 0, Qt.AlignmentFlag.AlignVCenter)
-        row.addSpacing(6)
-        row.addWidget(units_field, 0, Qt.AlignmentFlag.AlignVCenter)
-        row.addWidget(self.scale_label, 0, Qt.AlignmentFlag.AlignVCenter)
-        row.addWidget(self.mesh_info_label, 0, Qt.AlignmentFlag.AlignVCenter)
-        row.addWidget(self.quality_gauge, 0, Qt.AlignmentFlag.AlignVCenter)
+        units_field, units_row = self._field_shell(self.row1_widget, title="Units", icon_name="Method", row=1)
+        self.units_combo = QComboBox(units_field)
+        self.units_combo.addItems(["mm", "cm", "m", "inch"])
+        self.units_combo.setMinimumWidth(60)
+        self.units_combo.setFixedHeight(20)
+        self.units_combo.setStyleSheet("background: transparent; border: none;")
+        units_row.addWidget(self.units_combo)
+
+        row.addWidget(self.quality_gauge)
+        row.addSpacing(8)
+        row.addWidget(self._separator(self.row1_widget))
+        row.addSpacing(8)
+        row.addWidget(units_field)
+        row.addWidget(self.scale_label)
+        row.addWidget(self.mesh_info_label)
         row.addStretch(1)
         row.addWidget(self.btn_settings)
         row.addWidget(self.btn_about)
@@ -247,73 +256,69 @@ class UnifiedCommandBar(QWidget):
     def _build_row2_workflow(self) -> None:
         row = self.row2_layout
 
-        self.btn_smart_select = self._button("Smart Select", "Smart Select", row=2, kind="toggle", checkable=True)
+        self.btn_import_model = self._button("Import", "Import Model", row=2)
+        self.btn_reset_view = self._button("Reset", "Reset View", row=2)
+        self.btn_wireframe = self._button("Wire", "Wireframe", row=2, kind="toggle", checkable=True)
+        self.btn_grid = self._button("Grid", "Grid", row=2, kind="toggle", checkable=True)
+        self.btn_grid.setChecked(True)
+
+        self.btn_smart_select = self._button("Smart", "Smart Select", row=2, kind="toggle", checkable=True)
         self.btn_smart_select.setChecked(True)
-        self.btn_single_pick = self._button("Single Pick", "Single Pick", row=2, kind="toggle", checkable=True)
+        self.btn_single_pick = self._button("Pick", "Single Pick", row=2, kind="toggle", checkable=True)
         self.btn_clear = self._button("Clear", "Clear", row=2)
         self.btn_invert = self._button("Invert", "Invert", row=2)
         self.btn_isolate = self._button("Isolate", "Isolate", row=2, kind="toggle", checkable=True)
-        self.btn_toggle_2d = self._button("Show 2D Preview", "Show 2D Preview", row=2, kind="toggle", checkable=True)
+        self.btn_toggle_2d = self._button("2D Prev", "Show 2D Preview", row=2, kind="toggle", checkable=True)
 
         method_field, method_row = self._field_shell(self.row2_widget, title="Method", icon_name="Method", row=2)
         self.method_combo = QComboBox(method_field)
-        self.method_combo.setObjectName("Field")
         self.method_combo.addItems(["ARAP", "LSCM"])
-        self.method_combo.setCurrentText("ARAP")
-        self.method_combo.setMinimumWidth(90)
-        self.method_combo.setFixedHeight(28)
-        method_row.addWidget(self.method_combo, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.method_combo.setMinimumWidth(80)
+        self.method_combo.setStyleSheet("background: transparent; border: none;")
+        method_row.addWidget(self.method_combo)
 
-        # PH2-UX: Seam allowance slider restored to Row 2.
         seam_field, seam_row = self._field_shell(self.row2_widget, title="Seam", icon_name="Isolate", row=2)
         self.seam_slider = QSlider(Qt.Orientation.Horizontal, seam_field)
-        self.seam_slider.setObjectName("Field")
         self.seam_slider.setRange(0, 50)
         self.seam_slider.setValue(12)
-        self.seam_slider.setMinimumWidth(70)
-        self.seam_slider.setFixedHeight(28)
-        self.seam_label = QLabel("12 mm", seam_field)
-        self.seam_label.setObjectName("FieldLabel")
-        seam_row.addWidget(self.seam_slider, 0, Qt.AlignmentFlag.AlignVCenter)
-        seam_row.addWidget(self.seam_label, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.seam_slider.setMinimumWidth(60)
+        self.seam_label = QLabel("12mm", seam_field)
+        self.seam_label.setStyleSheet("font-size: 10px;")
+        seam_row.addWidget(self.seam_slider)
+        seam_row.addWidget(self.seam_label)
 
-        self.btn_technical = self._button("Technical", "Technical", row=2, kind="toggle", checkable=True)
+        self.btn_technical = self._button("Tech", "Technical", row=2, kind="toggle", checkable=True)
         self.btn_edges = self._button("Edges", "Edges", row=2, kind="toggle", checkable=True)
         self.btn_edges.setChecked(True)
 
-        self.btn_run_flatten = self._button("Run Flatten", "Run Flatten", row=2, kind="primary")
-        self.btn_run_flatten.setObjectName("btnRunFlattenPrimary")
+        self.btn_run_flatten = self._button("Flatten", "Run Flatten", row=2, kind="primary")
         self.btn_nest = self._button("Nest", "Nest", row=2)
-        self.btn_export_dxf = self._button("Export DXF", "Export DXF", row=2, kind="secondary")
-        self.btn_export_dxf.setObjectName("btnExportDxfSecondary")
+        self.btn_export_dxf = self._button("Export", "Export DXF", row=2, kind="secondary")
 
+        row.addWidget(self.btn_import_model)
+        row.addWidget(self.btn_reset_view)
+        row.addWidget(self.btn_wireframe)
+        row.addWidget(self.btn_grid)
+        row.addWidget(self._separator(self.row2_widget))
         row.addWidget(self.btn_smart_select)
         row.addWidget(self.btn_single_pick)
         row.addWidget(self.btn_clear)
         row.addWidget(self.btn_invert)
         row.addWidget(self.btn_isolate)
         row.addWidget(self.btn_toggle_2d)
-        row.addSpacing(6)
-        row.addWidget(self._separator(self.row2_widget), 0, Qt.AlignmentFlag.AlignVCenter)
-        row.addSpacing(6)
-        row.addWidget(method_field, 0, Qt.AlignmentFlag.AlignVCenter)
-        row.addWidget(seam_field, 0, Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(self._separator(self.row2_widget))
+        row.addWidget(method_field)
+        row.addWidget(seam_field)
         row.addWidget(self.btn_technical)
         row.addWidget(self.btn_edges)
-        row.addSpacing(6)
-        row.addWidget(self._separator(self.row2_widget), 0, Qt.AlignmentFlag.AlignVCenter)
-        row.addSpacing(6)
+        row.addWidget(self._separator(self.row2_widget))
         row.addWidget(self.btn_run_flatten)
         row.addWidget(self.btn_nest)
         row.addWidget(self.btn_export_dxf)
         row.addStretch(1)
 
     def _build_hidden_compat_controls(self) -> None:
-        # Compatibility widgets retained for existing RibbonMainWindow logic, but not visible in PH2 target layout.
         self.selected_label = QLabel("Selected: 0", self)
-        self.selected_label.setObjectName("FieldLabel")
         self.selected_label.hide()
-
-        self.export_path_label = QLabel("(last path not set)", self)
-        self.export_path_label.setObjectName("FieldLabel")
+        self.export_path_label = QLabel("", self)
         self.export_path_label.hide()

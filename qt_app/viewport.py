@@ -1,4 +1,5 @@
 from __future__ import annotations
+from pathlib import Path
 
 from collections import deque
 import math
@@ -12,6 +13,7 @@ from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QSize, QTimer, QVarian
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QRadialGradient, QVector3D, QVector4D, QRegion
 from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QLabel, QMenu, QSizePolicy, QToolButton, QWidget
 import trimesh
+from ui.icons.svg_icon import themed_svg_icon
 from ui.icon_loader import IconRegistry
 from ui.theme import tokens
 
@@ -932,7 +934,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.hud_orbit_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.hud_orbit_btn.setCheckable(True)
         self.hud_orbit_btn.setChecked(False)
-        self.hud_orbit_btn.setFixedSize(34, 34)
+        self.hud_orbit_btn.setFixedSize(48, 48)
         self.hud_orbit_btn.setIconSize(QSize(24, 24))
         self.hud_orbit_btn.toggled.connect(self._toggle_orbit_mode)
         orbit_icon = IconRegistry.get_icon("orbit", size=24, color=tokens.TEXT_PRIMARY)
@@ -952,7 +954,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.floating_orbit_btn.setObjectName("FloatingOrbitButton")
         self.floating_orbit_btn.setText("")
         self.floating_orbit_btn.setToolTip("Drag to Orbit Around Model")
-        self.floating_orbit_btn.setFixedSize(34, 34)
+        self.floating_orbit_btn.setFixedSize(48, 48)
         self.floating_orbit_btn.setStyleSheet(
             """
             QToolButton#FloatingOrbitButton {
@@ -970,8 +972,12 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             }
             """
         )
-        self.floating_orbit_btn.setIconSize(QSize(24, 24))
-        floating_orbit_icon = IconRegistry.get_icon("orbit", size=24, color=tokens.ACCENT)
+        self.floating_orbit_btn.setIconSize(QSize(32, 32))
+        orbit_path = Path("ui/icons/Industrial_SVG_Set_v1/orbit.svg")
+        if orbit_path.exists():
+            floating_orbit_icon = themed_svg_icon(str(orbit_path.resolve()), color=QColor(tokens.ACCENT), size_px=32)
+        else:
+            floating_orbit_icon = IconRegistry.get_icon("orbit", size=32, color=tokens.ACCENT)
         if not floating_orbit_icon.isNull():
             self.floating_orbit_btn.setIcon(floating_orbit_icon)
         self.floating_orbit_btn.dragStarted.connect(self._on_floating_orbit_drag_started)
