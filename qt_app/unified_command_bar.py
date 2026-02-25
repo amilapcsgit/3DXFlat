@@ -217,7 +217,7 @@ class UnifiedCommandBar(QWidget):
         self.scale_label.setObjectName("FieldLabel")
         self.mesh_info_label = QLabel("Mesh: -", self.row1_widget)
         self.mesh_info_label.setObjectName("FieldLabel")
-        self.mesh_info_label.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Preferred)
+        self.mesh_info_label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
 
         # PH2-UX: Quality gauge restored to Row 1 for immediate feedback.
         self.quality_gauge = QProgressBar(self.row1_widget)
@@ -225,8 +225,9 @@ class UnifiedCommandBar(QWidget):
         self.quality_gauge.setRange(0, 100)
         self.quality_gauge.setValue(0)
         self.quality_gauge.setFormat("Quality: -")
-        self.quality_gauge.setFixedWidth(150)
+        self.quality_gauge.setFixedWidth(240)
         self.quality_gauge.setFixedHeight(22)
+        self.quality_gauge.setToolTip("Weighted mesh quality score based on area error and strain.")
 
         row.addWidget(self.btn_import_model)
         row.addWidget(self.btn_reset_view)
@@ -237,7 +238,7 @@ class UnifiedCommandBar(QWidget):
         row.addSpacing(6)
         row.addWidget(units_field, 0, Qt.AlignmentFlag.AlignVCenter)
         row.addWidget(self.scale_label, 0, Qt.AlignmentFlag.AlignVCenter)
-        row.addWidget(self.mesh_info_label, 1, Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(self.mesh_info_label, 0, Qt.AlignmentFlag.AlignVCenter)
         row.addWidget(self.quality_gauge, 0, Qt.AlignmentFlag.AlignVCenter)
         row.addStretch(1)
         row.addWidget(self.btn_settings)
