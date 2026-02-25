@@ -9,12 +9,11 @@ from typing import Dict, Iterable, List, Tuple
 import ezdxf
 import numpy as np
 import trimesh
-from PySide6.QtCore import QObject, QPoint, QSize, QSettings, Qt, QThread, QTimer, Signal, Slot
-from PySide6.QtGui import QAction, QColor, QPainterPath, QPen
+from PySide6.QtCore import QObject, QPoint, QSettings, Qt, QThread, QTimer, Signal, Slot
+from PySide6.QtGui import QColor, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QApplication,
     QButtonGroup,
-    QComboBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -28,14 +27,10 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QProgressBar,
-    QPushButton,
     QRadioButton,
     QSizePolicy,
-    QSlider,
     QSplitter,
     QTabWidget,
-    QToolBar,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -48,7 +43,6 @@ from qt_app.mesh_io import load_mesh_file
 from qt_app.unified_command_bar import UnifiedCommandBar
 from qt_app.viewcube import ViewCubeWidget
 from qt_app.viewport import ThreeDViewportWidget
-from ui.icon_loader import IconRegistry
 from ui.theme import tokens
 
 
@@ -1114,7 +1108,7 @@ class RibbonMainWindow(QMainWindow):
         return poly
 
     def _on_seam_slider_changed(self, value: int) -> None:
-        self.seam_label.setText(f"Seam [{value}] mm")
+        self.seam_label.setText(f"{value} mm")
         self._seam_debounce.start()
 
     def _apply_seam_to_preview(self) -> None:

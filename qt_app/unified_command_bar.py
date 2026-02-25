@@ -216,7 +216,16 @@ class UnifiedCommandBar(QWidget):
         self.scale_label.setObjectName("FieldLabel")
         self.mesh_info_label = QLabel("Mesh: -", self.row1_widget)
         self.mesh_info_label.setObjectName("FieldLabel")
-        self.mesh_info_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.mesh_info_label.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Preferred)
+
+        # PH2-UX: Quality gauge restored to Row 1 for immediate feedback.
+        self.quality_gauge = QProgressBar(self.row1_widget)
+        self.quality_gauge.setObjectName("Field")
+        self.quality_gauge.setRange(0, 100)
+        self.quality_gauge.setValue(0)
+        self.quality_gauge.setFormat("Quality: -")
+        self.quality_gauge.setFixedWidth(200)
+        self.quality_gauge.setFixedHeight(28)
 
         row.addWidget(self.btn_import_model)
         row.addWidget(self.btn_reset_view)
@@ -228,6 +237,7 @@ class UnifiedCommandBar(QWidget):
         row.addWidget(units_field, 0, Qt.AlignmentFlag.AlignVCenter)
         row.addWidget(self.scale_label, 0, Qt.AlignmentFlag.AlignVCenter)
         row.addWidget(self.mesh_info_label, 1, Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(self.quality_gauge, 0, Qt.AlignmentFlag.AlignVCenter)
         row.addStretch(1)
         row.addWidget(self.btn_settings)
         row.addWidget(self.btn_about)
@@ -252,6 +262,20 @@ class UnifiedCommandBar(QWidget):
         self.method_combo.setFixedHeight(32)
         method_row.addWidget(self.method_combo, 0, Qt.AlignmentFlag.AlignVCenter)
 
+        # PH2-UX: Seam allowance slider restored to Row 2.
+        seam_field, seam_row = self._field_shell(self.row2_widget, title="Seam", icon_name="Isolate", row=2)
+        self.seam_slider = QSlider(Qt.Orientation.Horizontal, seam_field)
+        self.seam_slider.setObjectName("Field")
+        self.seam_slider.setRange(0, 50)
+        self.seam_slider.setValue(12)
+        self.seam_slider.setMinimumWidth(100)
+        self.seam_slider.setFixedHeight(32)
+        self.seam_label = QLabel("12 mm", seam_field)
+        self.seam_label.setObjectName("FieldLabel")
+        self.seam_label.setFixedWidth(45)
+        seam_row.addWidget(self.seam_slider, 0, Qt.AlignmentFlag.AlignVCenter)
+        seam_row.addWidget(self.seam_label, 0, Qt.AlignmentFlag.AlignVCenter)
+
         self.btn_technical = self._button("Technical", "Technical", row=2, kind="toggle", checkable=True)
         self.btn_edges = self._button("Edges", "Edges", row=2, kind="toggle", checkable=True)
         self.btn_edges.setChecked(True)
@@ -272,6 +296,7 @@ class UnifiedCommandBar(QWidget):
         row.addWidget(self._separator(self.row2_widget), 0, Qt.AlignmentFlag.AlignVCenter)
         row.addSpacing(8)
         row.addWidget(method_field, 0, Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(seam_field, 0, Qt.AlignmentFlag.AlignVCenter)
         row.addWidget(self.btn_technical)
         row.addWidget(self.btn_edges)
         row.addSpacing(8)
@@ -287,23 +312,6 @@ class UnifiedCommandBar(QWidget):
         self.selected_label = QLabel("Selected: 0", self)
         self.selected_label.setObjectName("FieldLabel")
         self.selected_label.hide()
-
-        self.quality_gauge = QProgressBar(self)
-        self.quality_gauge.setObjectName("Field")
-        self.quality_gauge.setRange(0, 100)
-        self.quality_gauge.setValue(0)
-        self.quality_gauge.setFormat("Quality: -")
-        self.quality_gauge.hide()
-
-        self.seam_slider = QSlider(Qt.Orientation.Horizontal, self)
-        self.seam_slider.setObjectName("Field")
-        self.seam_slider.setRange(0, 200)
-        self.seam_slider.setValue(12)
-        self.seam_slider.hide()
-
-        self.seam_label = QLabel("Seam [12] mm", self)
-        self.seam_label.setObjectName("FieldLabel")
-        self.seam_label.hide()
 
         self.export_path_label = QLabel("(last path not set)", self)
         self.export_path_label.setObjectName("FieldLabel")
