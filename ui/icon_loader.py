@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import os
 import base64
 
 from PySide6.QtCore import QSize
@@ -18,6 +18,18 @@ def _resource_paths(name: str) -> tuple[str, ...]:
 
 def load_icon(name: str, size: int = tokens.ICON_SIZE, color: str | None = None) -> QIcon:
     color_value = QColor(color or tokens.TEXT_PRIMARY)
+
+    # If name is a filesystem path, resolve it
+    if os.path.exists(name):
+        real_name = os.path.realpath(name)
+        try:
+            icon = themed_svg_icon(real_name, color=color_value, size_px=size, opacity=1.0)
+            if not icon.isNull():
+                return icon
+        except Exception:
+            pass
+        return QIcon(real_name)
+
     for svg_path in _resource_paths(name):
         try:
             icon = themed_svg_icon(svg_path, color=color_value, size_px=size, opacity=1.0)
@@ -67,7 +79,7 @@ def set_button_icon(
     color: str | None = None,
 ) -> None:
     icon_color = color
-    if icon_color is None and button.objectName() in {"primaryAction", "btnRunFlatten"}:
+    if icon_color is None and button.objectName() in {"primaryAction", "btnRunFlatten", "RunFlattenButton"}:
         icon_color = tokens.ON_ACCENT
     icon = load_icon(icon_name, size=size, color=icon_color)
     if icon.isNull():
@@ -83,7 +95,7 @@ def set_button_icon_base64_svg(
     color: str | None = None,
 ) -> None:
     icon_color = color
-    if icon_color is None and button.objectName() in {"primaryAction", "btnRunFlatten"}:
+    if icon_color is None and button.objectName() in {"primaryAction", "btnRunFlatten", "RunFlattenButton"}:
         icon_color = tokens.ON_ACCENT
     icon = load_icon_base64_svg(svg_b64, size=size, color=icon_color)
     if icon.isNull():

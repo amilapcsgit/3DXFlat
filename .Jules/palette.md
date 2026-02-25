@@ -18,3 +18,11 @@
 ## 2026-02-25 - [Preventing label clipping in high-density QToolButton layouts]
 **Learning:** When using `ToolButtonTextUnderIcon` style in high-density CAD headers, standard vertical spacing is often insufficient. Qt may silently hide labels if the button geometry is even 1-2 pixels too small. Increasing container height (e.g., from 80px to 90px) and explicitly resetting margins/padding on individual buttons is necessary to guarantee text visibility across different OS scaling settings.
 **Action:** Always provide at least 10-15px of vertical "buffer" beyond the icon+label height when using stacked button layouts.
+
+## 2026-02-25 - [Resolving icon symlink failures in Qt]
+**Learning:** Qt's `QIcon` and standard file reading may fail to resolve symbolic links on certain platforms or restricted environments (like some sandbox containers). Using `os.path.realpath()` to resolve the absolute path before passing it to Qt or `Path.read_text()` ensures that the actual asset is found and loaded correctly.
+**Action:** Always wrap filesystem-based asset paths in `os.path.realpath()` when loading icons or configuration files.
+
+## 2026-02-25 - [Optimizing CAD button typography for density]
+**Learning:** In high-density industrial headers, font size alone doesn't guarantee readability. Moving from 9pt to 11pt Bold (700) while simultaneously reducing icon size (e.g., from 32px to 28px) creates the necessary vertical separation for rapid scanning of primary actions.
+**Action:** For primary CTA buttons, prioritize bold typography over large icons to improve cognitive "pop" in complex toolbars.

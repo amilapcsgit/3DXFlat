@@ -1,5 +1,5 @@
 from __future__ import annotations
-
+import os
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt
@@ -56,12 +56,12 @@ class UnifiedCommandBar(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-        # STRUCTURAL REFACTOR: Two-Row High-DPI Header
-        # Adjusted total height to 146px (36 Row1 + 110 Row2) to fix clipping
-        self.setFixedHeight(146)
+        # UI QUALITY AUDIT - PHASE 4 REFINEMENT
+        # Tighten header to 125px total (Row1: 35px, Row2: 90px)
+        self.setFixedHeight(125)
         self.headerArea = QFrame(self)
         self.headerArea.setObjectName("headerArea")
-        self.headerArea.setFixedHeight(146)
+        self.headerArea.setFixedHeight(125)
         self.headerArea.setStyleSheet(f"""
             QFrame#headerArea {{
                 border-bottom: 1px solid #3A4048;
@@ -72,9 +72,16 @@ class UnifiedCommandBar(QWidget):
                 max-height: none;
                 border: none;
                 border-radius: 4px;
+                padding-top: 2px;
+                qproperty-toolButtonStyle: ToolButtonTextUnderIcon;
             }}
             #CommandBar QToolButton:hover {{
                 background-color: {tokens.BG_HOVER};
+            }}
+            #PrimaryButton, #RunFlattenButton {{
+                background-color: {tokens.ACCENT};
+                color: #FFFFFF !important;
+                font-weight: 700;
             }}
         """)
 
@@ -87,19 +94,19 @@ class UnifiedCommandBar(QWidget):
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(0)
 
-        # Row 1 (System Bar): 36px, #1A1D21
+        # Row 1 (System Bar): 35px
         self.row1_widget = QFrame(self.headerArea)
         self.row1_widget.setObjectName("Row1SystemBar")
-        self.row1_widget.setFixedHeight(36)
+        self.row1_widget.setFixedHeight(35)
         self.row1_widget.setStyleSheet("background-color: #1A1D21; border: none;")
         self.row1_layout = QHBoxLayout(self.row1_widget)
         self.row1_layout.setContentsMargins(16, 0, 16, 0)
         self.row1_layout.setSpacing(8)
 
-        # Row 2 (Main Command Bar): 110px
+        # Row 2 (Main Command Bar): 90px
         self.row2_widget = QFrame(self.headerArea)
         self.row2_widget.setObjectName("Row2CommandBar")
-        self.row2_widget.setFixedHeight(110)
+        self.row2_widget.setFixedHeight(90)
         self.row2_widget.setStyleSheet("background-color: transparent; border: none;")
         self.row2_layout = QHBoxLayout(self.row2_widget)
         self.row2_layout.setContentsMargins(16, 4, 16, 4)
@@ -115,15 +122,19 @@ class UnifiedCommandBar(QWidget):
         filename = self.ICON_MAP.get(command_name, "")
         if not filename:
             return QIcon()
-        path = (self.ICONS_DIR / filename).resolve()
-        if not path.exists():
+
+        # FIX: Resolve symbolic links before passing to Qt
+        raw_path = (self.ICONS_DIR / filename)
+        real_path = os.path.realpath(str(raw_path.resolve()))
+
+        if not os.path.exists(real_path):
             return IconRegistry.get_icon(command_name, size=size_px, color=color_hex)
 
         resolved_color = color_hex or tokens.TEXT_PRIMARY
-        cache_key = (str(path), int(size_px), resolved_color)
+        cache_key = (real_path, int(size_px), resolved_color)
         if cache_key in self._icon_cache:
             return self._icon_cache[cache_key]
-        icon = themed_svg_icon(str(path), color=QColor(resolved_color), size_px=int(size_px), opacity=1.0)
+        icon = themed_svg_icon(real_path, color=QColor(resolved_color), size_px=int(size_px), opacity=1.0)
         self._icon_cache[cache_key] = icon
         return icon
 
@@ -147,7 +158,7 @@ class UnifiedCommandBar(QWidget):
             layout.setContentsMargins(6, 0, 6, 0)
             layout.setSpacing(4)
         else:
-            frame.setFixedHeight(100)
+            frame.setFixedHeight(80)
             layout = QVBoxLayout(frame)
             layout.setContentsMargins(4, 4, 4, 4)
             layout.setSpacing(2)
@@ -175,18 +186,21 @@ class UnifiedCommandBar(QWidget):
             btn = QToolButton(self)
             btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
             font = btn.font()
-            font.setPointSize(9)
-            font.setWeight(QFont.Weight.DemiBold)
-            btn.setFont(font)
+            # UI QUALITY AUDIT: Boost label readability to 11pt
+            font.setPointSize(11)
 
             if command_name in ["Run Flatten", "Import Model", "Export DXF"]:
-                btn.setFixedSize(110, 100)
-                icon_size = 32
+                font.setWeight(QFont.Weight.Bold)
+                btn.setFixedSize(110, 80)
+                # Give text more vertical breathing room
+                icon_size = 28
             else:
+                font.setWeight(QFont.Weight.DemiBold)
                 btn.setFixedWidth(68)
-                btn.setFixedHeight(100)
-                icon_size = 24
+                btn.setFixedHeight(80)
+                icon_size = 22
 
+            btn.setFont(font)
             btn.setIconSize(QSize(icon_size, icon_size))
             btn.setContentsMargins(2, 2, 2, 2)
         else:
@@ -197,6 +211,8 @@ class UnifiedCommandBar(QWidget):
 
         if object_name:
             btn.setObjectName(object_name)
+        elif command_name == "Run Flatten":
+            btn.setObjectName("RunFlattenButton")
         elif kind == "primary":
             btn.setObjectName("PrimaryButton")
         elif kind == "secondary":
@@ -209,8 +225,9 @@ class UnifiedCommandBar(QWidget):
         btn.setText(label)
         btn.setCheckable(checkable)
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setToolTip(label)
 
-        icon_color = tokens.ON_ACCENT if kind == "primary" else tokens.TEXT_PRIMARY
+        icon_color = "#FFFFFF" if (kind == "primary" or command_name == "Run Flatten") else tokens.TEXT_PRIMARY
         icon = self._load_icon(command_name, icon_size, color_hex=icon_color)
         if not icon.isNull():
             btn.setIcon(icon)
@@ -339,12 +356,6 @@ class UnifiedCommandBar(QWidget):
         row.addWidget(self.btn_nest)
         row.addWidget(self.btn_export_dxf)
         row.addStretch(1)
-
-        # Force ToolButtonTextUnderIcon style and label visibility
-        for i in range(row.count()):
-            item = row.itemAt(i)
-            if item and (widget := item.widget()) and isinstance(widget, QToolButton):
-                widget.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
 
     def _build_hidden_compat_controls(self) -> None:
         self.selected_label = QLabel("Selected: 0", self)
