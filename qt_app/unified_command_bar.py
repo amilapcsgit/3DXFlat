@@ -117,8 +117,9 @@ class UnifiedCommandBar(QWidget):
         frame.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         frame.setFixedHeight(32)
         layout = QHBoxLayout(frame)
-        layout.setContentsMargins(10, 0, 10, 0)
-        layout.setSpacing(8)
+        # PH2-UX: Tightened margins and spacing to save horizontal room.
+        layout.setContentsMargins(6, 0, 6, 0)
+        layout.setSpacing(4)
 
         icon_label = QLabel(frame)
         icon_size = 20 if row == 1 else 22
@@ -159,19 +160,20 @@ class UnifiedCommandBar(QWidget):
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
 
+        # PH2-UX: Reduced min_widths to prevent clipping on Row 2 especially.
         if row == 1:
             height = 40
             icon_size = 20
-            min_width = 132
+            min_width = 110
         else:
             height = 48
             icon_size = 22
-            min_width = 132
+            min_width = 100
 
         if kind == "primary":
-            min_width = 168
+            min_width = 140
         elif kind == "secondary":
-            min_width = max(min_width, 148)
+            min_width = max(min_width, 120)
 
         btn.setMinimumHeight(height)
         btn.setMaximumHeight(height)
@@ -208,7 +210,7 @@ class UnifiedCommandBar(QWidget):
         self.units_combo.setObjectName("Field")
         self.units_combo.addItems(["mm", "cm", "m", "inch"])
         self.units_combo.setCurrentText("mm")
-        self.units_combo.setMinimumWidth(88)
+        self.units_combo.setMinimumWidth(80)
         self.units_combo.setFixedHeight(32)
         units_row.addWidget(self.units_combo, 0, Qt.AlignmentFlag.AlignVCenter)
 
@@ -216,15 +218,16 @@ class UnifiedCommandBar(QWidget):
         self.scale_label.setObjectName("FieldLabel")
         self.mesh_info_label = QLabel("Mesh: -", self.row1_widget)
         self.mesh_info_label.setObjectName("FieldLabel")
-        self.mesh_info_label.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Preferred)
+        self.mesh_info_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
 
         # PH2-UX: Quality gauge restored to Row 1 for immediate feedback.
+        # Tightened width to 160px to save space.
         self.quality_gauge = QProgressBar(self.row1_widget)
         self.quality_gauge.setObjectName("Field")
         self.quality_gauge.setRange(0, 100)
         self.quality_gauge.setValue(0)
         self.quality_gauge.setFormat("Quality: -")
-        self.quality_gauge.setFixedWidth(200)
+        self.quality_gauge.setFixedWidth(160)
         self.quality_gauge.setFixedHeight(28)
 
         row.addWidget(self.btn_import_model)
@@ -258,7 +261,7 @@ class UnifiedCommandBar(QWidget):
         self.method_combo.setObjectName("Field")
         self.method_combo.addItems(["ARAP", "LSCM"])
         self.method_combo.setCurrentText("ARAP")
-        self.method_combo.setMinimumWidth(110)
+        self.method_combo.setMinimumWidth(100)
         self.method_combo.setFixedHeight(32)
         method_row.addWidget(self.method_combo, 0, Qt.AlignmentFlag.AlignVCenter)
 
@@ -268,11 +271,10 @@ class UnifiedCommandBar(QWidget):
         self.seam_slider.setObjectName("Field")
         self.seam_slider.setRange(0, 50)
         self.seam_slider.setValue(12)
-        self.seam_slider.setMinimumWidth(100)
+        self.seam_slider.setMinimumWidth(80)
         self.seam_slider.setFixedHeight(32)
         self.seam_label = QLabel("12 mm", seam_field)
         self.seam_label.setObjectName("FieldLabel")
-        self.seam_label.setFixedWidth(45)
         seam_row.addWidget(self.seam_slider, 0, Qt.AlignmentFlag.AlignVCenter)
         seam_row.addWidget(self.seam_label, 0, Qt.AlignmentFlag.AlignVCenter)
 
