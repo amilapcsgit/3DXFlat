@@ -56,31 +56,34 @@ class UnifiedCommandBar(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self.setAutoFillBackground(True)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setMinimumHeight(128)
-        self.setMaximumHeight(128)
-        self.setFixedHeight(128)
+
+        # PH2-UX: Compact height (~30% reduction)
+        compact_height = 92
+        self.setMinimumHeight(compact_height)
+        self.setMaximumHeight(compact_height)
+        self.setFixedHeight(compact_height)
         self._icon_cache: dict[tuple[str, int, str], QIcon] = {}
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(16, 8, 16, 8)
-        root.setSpacing(8)
+        root.setContentsMargins(16, 4, 16, 4)
+        root.setSpacing(4)
 
         self.row1_widget = QFrame(self)
         self.row1_widget.setObjectName("Row1General")
         self.row1_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.row1_widget.setFixedHeight(48)
+        self.row1_widget.setFixedHeight(34)
         self.row1_layout = QHBoxLayout(self.row1_widget)
         self.row1_layout.setContentsMargins(0, 0, 0, 0)
-        self.row1_layout.setSpacing(8)
+        self.row1_layout.setSpacing(6)
         root.addWidget(self.row1_widget, 0)
 
         self.row2_widget = QFrame(self)
         self.row2_widget.setObjectName("Row2Workflow")
         self.row2_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.row2_widget.setFixedHeight(56)
+        self.row2_widget.setFixedHeight(40)
         self.row2_layout = QHBoxLayout(self.row2_widget)
         self.row2_layout.setContentsMargins(0, 0, 0, 0)
-        self.row2_layout.setSpacing(8)
+        self.row2_layout.setSpacing(6)
         root.addWidget(self.row2_widget, 0)
 
         self._build_rows()
@@ -107,7 +110,7 @@ class UnifiedCommandBar(QWidget):
         line.setFrameShadow(QFrame.Shadow.Plain)
         line.setLineWidth(1)
         line.setMidLineWidth(0)
-        line.setFixedHeight(30)
+        line.setFixedHeight(24)
         line.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         return line
 
@@ -115,14 +118,13 @@ class UnifiedCommandBar(QWidget):
         frame = QFrame(parent)
         frame.setObjectName("Field")
         frame.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
-        frame.setFixedHeight(32)
+        frame.setFixedHeight(24)
         layout = QHBoxLayout(frame)
-        # PH2-UX: Tightened margins and spacing to save horizontal room.
         layout.setContentsMargins(6, 0, 6, 0)
         layout.setSpacing(4)
 
         icon_label = QLabel(frame)
-        icon_size = 20 if row == 1 else 22
+        icon_size = 16 if row == 1 else 18
         icon = self._load_icon(icon_name, icon_size)
         if not icon.isNull():
             icon_label.setPixmap(icon.pixmap(icon_size, icon_size))
@@ -160,35 +162,32 @@ class UnifiedCommandBar(QWidget):
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setLayoutDirection(Qt.LayoutDirection.LeftToRight)
 
-        # PH2-UX: Reduced min_widths to prevent clipping on Row 2 especially.
+        # PH2-UX: Compact dimensions
         if row == 1:
-            height = 40
-            icon_size = 20
-            min_width = 110
-        else:
-            height = 48
-            icon_size = 22
+            height = 28
+            icon_size = 16
             min_width = 100
+        else:
+            height = 34
+            icon_size = 18
+            min_width = 90
 
         if kind == "primary":
-            min_width = 140
+            min_width = 130
         elif kind == "secondary":
-            min_width = max(min_width, 120)
+            min_width = max(min_width, 110)
 
         btn.setMinimumHeight(height)
         btn.setMaximumHeight(height)
         btn.setMinimumWidth(min_width)
         icon_color = tokens.ON_ACCENT if kind == "primary" else tokens.TEXT_PRIMARY
-        icon = self._load_icon(command_name, 32 if command_name == "Orbit HUD" else icon_size, color_hex=icon_color)
+        icon = self._load_icon(command_name, 24 if command_name == "Orbit HUD" else icon_size, color_hex=icon_color)
         if not icon.isNull():
             btn.setIcon(icon)
             btn.setIconSize(QSize(icon_size, icon_size))
         return btn
 
     def _build_rows(self) -> None:
-        # Preload the larger 32x32 orbit glyph path to validate rendering of non-24 viewBox icons.
-        self._load_icon("Orbit HUD", 32)
-
         self._build_row1_general()
         self._build_row2_workflow()
         self._build_hidden_compat_controls()
@@ -210,33 +209,32 @@ class UnifiedCommandBar(QWidget):
         self.units_combo.setObjectName("Field")
         self.units_combo.addItems(["mm", "cm", "m", "inch"])
         self.units_combo.setCurrentText("mm")
-        self.units_combo.setMinimumWidth(80)
-        self.units_combo.setFixedHeight(32)
+        self.units_combo.setMinimumWidth(70)
+        self.units_combo.setFixedHeight(22)
         units_row.addWidget(self.units_combo, 0, Qt.AlignmentFlag.AlignVCenter)
 
         self.scale_label = QLabel("Scale: -", self.row1_widget)
         self.scale_label.setObjectName("FieldLabel")
         self.mesh_info_label = QLabel("Mesh: -", self.row1_widget)
         self.mesh_info_label.setObjectName("FieldLabel")
-        self.mesh_info_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.mesh_info_label.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Preferred)
 
         # PH2-UX: Quality gauge restored to Row 1 for immediate feedback.
-        # Tightened width to 160px to save space.
         self.quality_gauge = QProgressBar(self.row1_widget)
         self.quality_gauge.setObjectName("Field")
         self.quality_gauge.setRange(0, 100)
         self.quality_gauge.setValue(0)
         self.quality_gauge.setFormat("Quality: -")
-        self.quality_gauge.setFixedWidth(160)
-        self.quality_gauge.setFixedHeight(28)
+        self.quality_gauge.setFixedWidth(150)
+        self.quality_gauge.setFixedHeight(22)
 
         row.addWidget(self.btn_import_model)
         row.addWidget(self.btn_reset_view)
         row.addWidget(self.btn_wireframe)
         row.addWidget(self.btn_grid)
-        row.addSpacing(8)
+        row.addSpacing(6)
         row.addWidget(self._separator(self.row1_widget), 0, Qt.AlignmentFlag.AlignVCenter)
-        row.addSpacing(8)
+        row.addSpacing(6)
         row.addWidget(units_field, 0, Qt.AlignmentFlag.AlignVCenter)
         row.addWidget(self.scale_label, 0, Qt.AlignmentFlag.AlignVCenter)
         row.addWidget(self.mesh_info_label, 1, Qt.AlignmentFlag.AlignVCenter)
@@ -261,8 +259,8 @@ class UnifiedCommandBar(QWidget):
         self.method_combo.setObjectName("Field")
         self.method_combo.addItems(["ARAP", "LSCM"])
         self.method_combo.setCurrentText("ARAP")
-        self.method_combo.setMinimumWidth(100)
-        self.method_combo.setFixedHeight(32)
+        self.method_combo.setMinimumWidth(90)
+        self.method_combo.setFixedHeight(28)
         method_row.addWidget(self.method_combo, 0, Qt.AlignmentFlag.AlignVCenter)
 
         # PH2-UX: Seam allowance slider restored to Row 2.
@@ -271,8 +269,8 @@ class UnifiedCommandBar(QWidget):
         self.seam_slider.setObjectName("Field")
         self.seam_slider.setRange(0, 50)
         self.seam_slider.setValue(12)
-        self.seam_slider.setMinimumWidth(80)
-        self.seam_slider.setFixedHeight(32)
+        self.seam_slider.setMinimumWidth(70)
+        self.seam_slider.setFixedHeight(28)
         self.seam_label = QLabel("12 mm", seam_field)
         self.seam_label.setObjectName("FieldLabel")
         seam_row.addWidget(self.seam_slider, 0, Qt.AlignmentFlag.AlignVCenter)
@@ -294,16 +292,16 @@ class UnifiedCommandBar(QWidget):
         row.addWidget(self.btn_invert)
         row.addWidget(self.btn_isolate)
         row.addWidget(self.btn_toggle_2d)
-        row.addSpacing(8)
+        row.addSpacing(6)
         row.addWidget(self._separator(self.row2_widget), 0, Qt.AlignmentFlag.AlignVCenter)
-        row.addSpacing(8)
+        row.addSpacing(6)
         row.addWidget(method_field, 0, Qt.AlignmentFlag.AlignVCenter)
         row.addWidget(seam_field, 0, Qt.AlignmentFlag.AlignVCenter)
         row.addWidget(self.btn_technical)
         row.addWidget(self.btn_edges)
-        row.addSpacing(8)
+        row.addSpacing(6)
         row.addWidget(self._separator(self.row2_widget), 0, Qt.AlignmentFlag.AlignVCenter)
-        row.addSpacing(8)
+        row.addSpacing(6)
         row.addWidget(self.btn_run_flatten)
         row.addWidget(self.btn_nest)
         row.addWidget(self.btn_export_dxf)

@@ -6,3 +6,7 @@
 ## 2026-02-09 - [High-density CAD toolbar optimization]
 **Learning:** In industrial applications with many actions, fixed-width buttons based on text labels can quickly exceed typical screen resolutions. Transitioning to a "flexible" minimum width or significantly reduced fixed minimum (e.g., 100px instead of 132px) while maintaining icons is necessary to prevent UI clipping and ensure all contextual tools remain visible.
 **Action:** When designing toolbars with >10 actions, prioritize horizontal density by tightening shell margins and reducing button padding/min-widths early in the design phase.
+
+## 2026-02-25 - [Compact UI and Typography Optimization]
+**Learning:** For professional CAD applications, vertical real estate is at a premium. Reducing toolbars by ~30% and using a condensed font (Roboto Condensed) significantly improves the usable geometry workspace and reduces visual "bulk".
+**Action:** When a UI feels "unbalanced" or "heavy", prefer compacting heights and using tighter typography before removing features.

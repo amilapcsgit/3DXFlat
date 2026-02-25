@@ -10,7 +10,7 @@ import pyqtgraph.opengl as gl
 from pyqtgraph.opengl import shaders as gl_shaders
 from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QSize, QTimer, QVariantAnimation, Qt, Signal
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QRadialGradient, QVector3D, QVector4D, QRegion
-from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QLabel, QMenu, QSizePolicy, QToolButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QLabel, QMenu, QSizePolicy, QToolButton, QWidget
 import trimesh
 from ui.icon_loader import IconRegistry
 from ui.theme import tokens
@@ -900,10 +900,10 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             btn.setObjectName("hudGhostButton")
             btn.setText("")
             btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-            btn.setFixedSize(36, 36)
+            btn.setFixedSize(28, 28)
             btn.setCheckable(checkable)
             btn.setToolTip(tooltip)
-            apply_hud_icon(btn, icon_name, size_px=20)
+            apply_hud_icon(btn, icon_name, size_px=16)
             return btn
 
         self.hud_fit_btn = make_ghost_button(tooltip="Zoom Fit", icon_name="frame_selection")
@@ -932,10 +932,10 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.hud_orbit_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.hud_orbit_btn.setCheckable(True)
         self.hud_orbit_btn.setChecked(False)
-        self.hud_orbit_btn.setFixedSize(48, 48)
-        self.hud_orbit_btn.setIconSize(QSize(32, 32))
+        self.hud_orbit_btn.setFixedSize(34, 34)
+        self.hud_orbit_btn.setIconSize(QSize(24, 24))
         self.hud_orbit_btn.toggled.connect(self._toggle_orbit_mode)
-        orbit_icon = IconRegistry.get_icon("orbit", size=32, color=tokens.TEXT_PRIMARY)
+        orbit_icon = IconRegistry.get_icon("orbit", size=24, color=tokens.TEXT_PRIMARY)
         if not orbit_icon.isNull():
             self.hud_orbit_btn.setIcon(orbit_icon)
 
@@ -952,26 +952,26 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.floating_orbit_btn.setObjectName("FloatingOrbitButton")
         self.floating_orbit_btn.setText("")
         self.floating_orbit_btn.setToolTip("Drag to Orbit Around Model")
-        self.floating_orbit_btn.setFixedSize(48, 48)
+        self.floating_orbit_btn.setFixedSize(34, 34)
         self.floating_orbit_btn.setStyleSheet(
-            f"""
-            QToolButton#FloatingOrbitButton {{
+            """
+            QToolButton#FloatingOrbitButton {
                 background: transparent;
                 border: none;
                 padding: 0px;
-            }}
-            QToolButton#FloatingOrbitButton:hover {{
+            }
+            QToolButton#FloatingOrbitButton:hover {
                 background: transparent;
                 border: none;
-            }}
-            QToolButton#FloatingOrbitButton:pressed {{
+            }
+            QToolButton#FloatingOrbitButton:pressed {
                 background: transparent;
                 border: none;
-            }}
+            }
             """
         )
-        self.floating_orbit_btn.setIconSize(QSize(32, 32))
-        floating_orbit_icon = IconRegistry.get_icon("orbit", size=32, color=tokens.ACCENT)
+        self.floating_orbit_btn.setIconSize(QSize(24, 24))
+        floating_orbit_icon = IconRegistry.get_icon("orbit", size=24, color=tokens.ACCENT)
         if not floating_orbit_icon.isNull():
             self.floating_orbit_btn.setIcon(floating_orbit_icon)
         self.floating_orbit_btn.dragStarted.connect(self._on_floating_orbit_drag_started)
