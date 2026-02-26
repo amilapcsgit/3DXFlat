@@ -246,6 +246,7 @@ QWidget#row2CommandBar QPushButton {
     padding-right: {SPACE_S}px;
     border-radius: {RADIUS_BUTTON}px;
     font-weight: 500;
+    font-size: 12px;
 }
 
 QPushButton#PrimaryButton,
@@ -263,7 +264,7 @@ QPushButton#btnRunFlattenPrimary {
 
 QPushButton#PrimaryButton:hover,
 QPushButton#btnRunFlattenPrimary:hover {
-    background: {ACCENT};
+    background: #17B6F0;
     border: none;
 }
 
@@ -271,8 +272,15 @@ QPushButton#PrimaryButton:pressed,
 QPushButton#PrimaryButton:checked,
 QPushButton#btnRunFlattenPrimary:pressed,
 QPushButton#btnRunFlattenPrimary:checked {
-    background: {ACCENT};
+    background: #0996CD;
     border: none;
+}
+
+QPushButton#PrimaryButton:disabled,
+QPushButton#btnRunFlattenPrimary:disabled {
+    background: {BG_PANEL};
+    border: 1px solid {BORDER};
+    color: {TEXT_DISABLED};
 }
 
 QPushButton#SecondaryButton,
@@ -298,17 +306,24 @@ QPushButton#SecondaryButton:pressed,
 QPushButton#SecondaryButton:checked,
 QPushButton#btnExportDxfSecondary:pressed,
 QPushButton#btnExportDxfSecondary:checked {
-    background: {BG_HOVER};
+    background: {BG_PANEL};
     border-color: {ACCENT};
 }
 
+QPushButton#SecondaryButton:disabled,
+QPushButton#btnExportDxfSecondary:disabled {
+    background: {BG_PANEL};
+    border-color: {BORDER};
+    color: {TEXT_DISABLED};
+}
+
 QPushButton#StandardButton {
-    min-width: 132px;
+    min-width: 120px;
     min-height: 40px;
     max-height: 40px;
-    padding: 8px 10px;
+    padding: 6px 10px;
     background: {BG_PANEL};
-    border: 1px solid {BORDER};
+    border: 1px solid transparent;
     border-radius: {RADIUS_BUTTON}px;
     color: {TEXT_PRIMARY};
     font-weight: 500;
@@ -316,15 +331,21 @@ QPushButton#StandardButton {
 
 QPushButton#StandardButton:hover {
     background: {BG_HOVER};
+    border-color: {BORDER};
+}
+
+QPushButton#StandardButton:pressed {
+    background: {BG_PANEL};
+    border-color: {BORDER};
 }
 
 QPushButton#ToggleButton {
-    min-width: 132px;
+    min-width: 120px;
     min-height: 40px;
     max-height: 40px;
-    padding: 8px 10px;
+    padding: 6px 10px;
     background: {BG_PANEL};
-    border: 1px solid {BORDER};
+    border: 1px solid transparent;
     border-radius: {RADIUS_BUTTON}px;
     color: {TEXT_PRIMARY};
     font-weight: 500;
@@ -332,12 +353,30 @@ QPushButton#ToggleButton {
 
 QPushButton#ToggleButton:hover {
     background: {BG_HOVER};
+    border-color: {BORDER};
+}
+
+QPushButton#ToggleButton:pressed {
+    background: {BG_PANEL};
+    border-color: {BORDER};
 }
 
 QPushButton#ToggleButton:checked {
-    border: 2px solid {ACCENT};
-    padding: 7px 9px;
+    border: 1px solid {ACCENT};
     background: {BG_HOVER};
+    color: {TEXT_PRIMARY};
+}
+
+QPushButton#ToggleButton:checked:hover {
+    border-color: {ACCENT};
+    background: {BG_HOVER};
+}
+
+QPushButton#ToggleButton:disabled,
+QPushButton#ToggleButton:checked:disabled {
+    background: {BG_PANEL};
+    border-color: {BORDER};
+    color: {TEXT_DISABLED};
 }
 
 QWidget#CommandBar QPushButton:disabled,

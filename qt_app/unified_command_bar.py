@@ -56,16 +56,15 @@ class UnifiedCommandBar(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self.setAutoFillBackground(True)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        self.setMinimumHeight(88)
-        self.setMaximumHeight(88)
-        self.setFixedHeight(88)
+        # Focused visual polish: give the two internal 40px lines a small breathing margin.
+        self.setMinimumHeight(96)
+        self.setMaximumHeight(96)
+        self.setFixedHeight(96)
         self._icon_cache: dict[tuple[str, int, str], QIcon] = {}
 
         root = QVBoxLayout(self)
-        # PH2-VP-S2: exact row2 height target (88px) with two internal 40px lines.
-        # The supplied pixel spec is internally inconsistent if top/bottom padding and an
-        # 8px inter-line gap are both applied. We preserve the two 40px lines + 8px gap.
-        root.setContentsMargins(12, 0, 12, 0)
+        # 40 + 8 + 40 + (4 + 4) = 96 total. This removes the cramped/clipped look.
+        root.setContentsMargins(12, 4, 12, 4)
         root.setSpacing(8)
 
         self.row1_widget = QFrame(self)
@@ -110,7 +109,7 @@ class UnifiedCommandBar(QWidget):
         line.setFrameShadow(QFrame.Shadow.Plain)
         line.setLineWidth(1)
         line.setMidLineWidth(0)
-        line.setFixedHeight(30)
+        line.setFixedHeight(24)
         line.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         return line
 
@@ -165,17 +164,17 @@ class UnifiedCommandBar(QWidget):
         if row == 1:
             height = 40
             icon_size = 20
-            min_width = 120
+            min_width = 112
         else:
             height = 40
             icon_size = 20
-            min_width = 120
+            min_width = 108
 
         if kind == "primary":
-            min_width = 160
+            min_width = 156
             icon_size = 24
         elif kind == "secondary":
-            min_width = max(min_width, 140)
+            min_width = max(min_width, 136)
 
         btn.setMinimumHeight(height)
         btn.setMaximumHeight(height)
