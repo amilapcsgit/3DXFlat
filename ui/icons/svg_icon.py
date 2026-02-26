@@ -1,5 +1,6 @@
 # ui/icons/svg_icon.py
 from __future__ import annotations
+import os
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -21,13 +22,14 @@ def _read_text(path: str) -> str:
         f.close()
         return data.decode("utf-8", errors="replace")
     else:
-        return Path(path).read_text(encoding="utf-8", errors="replace")
+        # Resolve symbolic links before reading
+        real_path = os.path.realpath(path)
+        return Path(real_path).read_text(encoding="utf-8", errors="replace")
 
 
 def _replace_current_color(svg: str, color_hex: str) -> str:
     # Replace *only* the currentColor usage.
     # Covers stroke/fill/currentColor in styles too.
-    # Keep it simple and deterministic.
     return (
         svg.replace('stroke="currentColor"', f'stroke="{color_hex}"')
            .replace("stroke:currentColor", f"stroke:{color_hex}")
@@ -53,12 +55,6 @@ def _render_svg_text_pixmap(svg_text: str, size_px: int, color_hex: str, opacity
 
 @lru_cache(maxsize=512)
 def _render_svg_pixmap(svg_key: str, size_px: int, color_hex: str, opacity_255: int) -> QPixmap:
-    """
-    svg_key: the resource path or file path string
-    size_px: output square size
-    color_hex: '#RRGGBB'
-    opacity_255: 0..255
-    """
     svg_text = _read_text(svg_key)
     svg_text = _replace_current_color(svg_text, color_hex)
 
@@ -69,8 +65,6 @@ def _render_svg_pixmap(svg_key: str, size_px: int, color_hex: str, opacity_255: 
     p = QPainter(pm)
     p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     p.setOpacity(opacity_255 / 255.0)
-
-    # Render into full square
     renderer.render(p, QRect(0, 0, size_px, size_px))
     p.end()
     return pm
@@ -80,11 +74,7 @@ def themed_svg_icon(svg_path: str, *,
                     color: QColor,
                     size_px: int = 24,
                     opacity: float = 1.0) -> QIcon:
-    """
-    Returns a QIcon made from an SVG that uses currentColor.
-    Caches rendered pixmaps to avoid re-rendering.
-    """
-    color_hex = color.name(QColor.NameFormat.HexRgb)  # '#RRGGBB'
+    color_hex = color.name(QColor.NameFormat.HexRgb)
     opacity_255 = max(0, min(255, int(opacity * 255)))
     pm = _render_svg_pixmap(svg_path, size_px, color_hex, opacity_255)
     return QIcon(pm)
@@ -104,12 +94,7 @@ def apply_icon(button_or_action, svg_path: str, *,
                color: QColor,
                size_px: int = 24,
                opacity: float = 1.0):
-    """
-    Convenience: set icon + icon size on QPushButton/QToolButton/QAction
-    """
     icon = themed_svg_icon(svg_path, color=color, size_px=size_px, opacity=opacity)
-
-    # QAction has setIcon only, no setIconSize
     if hasattr(button_or_action, "setIcon"):
         button_or_action.setIcon(icon)
     if hasattr(button_or_action, "setIconSize"):

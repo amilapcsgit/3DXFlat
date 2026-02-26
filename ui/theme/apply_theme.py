@@ -8,68 +8,69 @@ from PySide6.QtWidgets import QApplication, QStyleFactory
 from ui.theme import tokens
 
 
-_UI_ENHANCE_V2_QSS_OVERRIDE = """
+def _get_qss_override() -> str:
+    return f"""
 /* ui-enhance-v2.md global override (cross-referenced with ui-enhance.md QOpenGLWidget rule) */
 
 /* Core Window & Backgrounds - Enforcing Tokens */
-QMainWindow, QDialog { background-color: #1F2227; color: #E5E9F0; }
-QWidget { font-family: "Segoe UI", Helvetica, Arial, sans-serif; font-size: 12px; color: #E5E9F0; }
+QMainWindow, QDialog {{ background-color: {tokens.BG_MAIN}; color: {tokens.TEXT_PRIMARY}; }}
+QWidget {{ font-family: "{tokens.FONT_FAMILY}", Helvetica, Arial, sans-serif; font-size: {tokens.FONT_SIZE_BODY}px; color: {tokens.TEXT_PRIMARY}; }}
 
 /* 3D Viewport Container (from ui-enhance.md sample logic) */
-QOpenGLWidget {
+QOpenGLWidget {{
     background-color: #151515;
     border: 1px solid #333333;
-}
+}}
 
 /* 2D Panel & Panels */
-QFrame#Panel2D, QWidget#Preview2DPanel {
+QFrame#Panel2D, QWidget#Preview2DPanel {{
     background-color: #1D2127;
-    border: 1px solid #3A4048;
-    border-radius: 8px;
-}
+    border: 1px solid {tokens.BORDER};
+    border-radius: {tokens.RADIUS_PANEL}px;
+}}
 
-/* Ribbon Tab System (32px Height) */
-QTabWidget::pane { border-top: 1px solid #3A4048; background-color: #1F2227; }
-QTabBar::tab {
-    background-color: #1F2227;
-    color: #9AA4B2;
-    height: 32px;
-    padding: 0px 24px;
+/* Ribbon Tab System ({tokens.TABS_HEIGHT}px Height) */
+QTabWidget::pane {{ border-top: 1px solid {tokens.BORDER}; background-color: {tokens.BG_MAIN}; }}
+QTabBar::tab {{
+    background-color: {tokens.BG_MAIN};
+    color: {tokens.TEXT_SECONDARY};
+    height: {tokens.TABS_HEIGHT}px;
+    padding: 0px 16px;
     border: none;
     border-bottom: 2px solid transparent;
-}
-QTabBar::tab:selected { color: #E5E9F0; border-bottom: 2px solid #00AEEF; }
-QTabBar::tab:hover { color: #ffffff; background-color: #2A2F36; }
+}}
+QTabBar::tab:selected {{ color: {tokens.TEXT_PRIMARY}; border-bottom: 2px solid {tokens.ACCENT}; }}
+QTabBar::tab:hover {{ color: #ffffff; background-color: {tokens.BG_PANEL}; }}
 
 /* Ribbon Buttons (QToolButton - Secondary Actions) */
-QToolButton {
-    background-color: #2A2F36;
-    color: #E5E9F0;
-    border: 1px solid #3A4048;
-    border-radius: 6px;
-    padding: 6px 12px;
-    margin: 4px;
-    min-width: 80px;
-}
-QToolButton:hover { background-color: #323842; border-color: #00AEEF; }
-QToolButton:pressed, QToolButton:checked { background-color: #3A4048; border-color: #00AEEF; }
+QToolButton {{
+    background-color: {tokens.BG_PANEL};
+    color: {tokens.TEXT_PRIMARY};
+    border: 1px solid {tokens.BORDER};
+    border-radius: {tokens.RADIUS_BUTTON}px;
+    padding: 4px 8px;
+    margin: 2px;
+    min-width: 60px;
+}}
+QToolButton:hover {{ background-color: {tokens.BG_HOVER}; border-color: {tokens.ACCENT}; }}
+QToolButton:pressed, QToolButton:checked {{ background-color: {tokens.BORDER}; border-color: {tokens.ACCENT}; }}
 
 /* Primary Action Button (Flatten) */
-QToolButton#btnRunFlatten {
-    background-color: #00AEEF;
+QToolButton#btnRunFlatten {{
+    background-color: {tokens.ACCENT};
     color: white;
     border: none;
     font-weight: bold;
-}
-QToolButton#btnRunFlatten:hover { background-color: #17B6F0; }
+}}
+QToolButton#btnRunFlatten:hover {{ background-color: #17B6F0; }}
 
-/* Status Bar (28px) */
-QStatusBar {
-    background-color: #1F2227;
-    border-top: 1px solid #3A4048;
-    color: #9AA4B2;
-    min-height: 28px;
-}
+/* Status Bar ({tokens.STATUS_BAR_HEIGHT}px) */
+QStatusBar {{
+    background-color: {tokens.BG_MAIN};
+    border-top: 1px solid {tokens.BORDER};
+    color: {tokens.TEXT_SECONDARY};
+    min-height: {tokens.STATUS_BAR_HEIGHT}px;
+}}
 """
 
 
@@ -105,7 +106,7 @@ def _build_stylesheet() -> str:
     template = qss_path.read_text(encoding="utf-8")
     for key, value in tokens.qss_vars().items():
         template = template.replace(f"{{{key}}}", value)
-    return f"{template}\n\n{_UI_ENHANCE_V2_QSS_OVERRIDE}\n"
+    return f"{template}\n\n{_get_qss_override()}\n"
 
 
 def apply_app_theme(app: QApplication) -> None:
