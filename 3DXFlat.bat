@@ -76,6 +76,12 @@ for /f "tokens=1,2 delims=." %%A in ("%PY_VER%") do (
   if %%A GTR 3 echo WARNING: Python %PY_VER% detected. Wheels may be unstable; 3.10-3.13 is recommended.
   if %%A EQU 3 if %%B GEQ 14 echo WARNING: Python %PY_VER% detected. Wheels may be unstable; 3.10-3.13 is recommended.
 )
+set "PY_MAJOR="
+set "PY_MINOR="
+for /f "tokens=1,2 delims=." %%A in ("%PY_VER%") do (
+  set "PY_MAJOR=%%A"
+  set "PY_MINOR=%%B"
+)
 
 echo [2/5] Resolving virtual environment path...
 if "%IS_NETWORK_REPO%"=="1" (
@@ -194,31 +200,38 @@ if "%NEED_INSTALL%"=="1" (
 )
 
 if exist "%OPTIONAL_BREP_REQ%" (
-  set "BREP_IMPORT_OK=0"
-  call :check_occ "%VENV_PY%"
-  if "!BREP_IMPORT_OK!"=="1" (
-    echo [4.1/5] Optional B-Rep dependency present: pythonocc-core.
+  set "OCC_COMPATIBLE=1"
+  if "!PY_MAJOR!"=="3" if !PY_MINOR! GEQ 13 set "OCC_COMPATIBLE=0"
+  if "!OCC_COMPATIBLE!"=="0" (
+    echo [4.1/5] Optional B-Rep dependency skipped on Python %PY_VER%, requires ^<=3.12.
+    call :log "INFO: Skipping pythonocc-core install on Python %PY_VER%."
   ) else (
-    echo [4.1/5] Installing optional B-Rep dependency: pythonocc-core...
-    call :log "CMD START: \"%VENV_PY%\" -m pip install -r %OPTIONAL_BREP_REQ%"
-    "%VENV_PY%" -m pip install -r "%OPTIONAL_BREP_REQ%" >>"%RUNTIME_LOG%" 2>&1
-    set "RC=!ERRORLEVEL!"
-    call :log "CMD END rc=!RC!"
-    if not "!RC!"=="0" (
-      call :log "WARN: Optional B-Rep dependency install failed."
-      echo WARNING: Failed to install optional B-Rep dependency.
-      echo          STEP/IGES import may be unavailable.
-      echo          See runtime log: %RUNTIME_LOG%
+    set "BREP_IMPORT_OK=0"
+    call :check_occ "%VENV_PY%"
+    if "!BREP_IMPORT_OK!"=="1" (
+      echo [4.1/5] Optional B-Rep dependency present: pythonocc-core.
     ) else (
-      set "BREP_IMPORT_OK=0"
-      call :check_occ "%VENV_PY%"
-      if "!BREP_IMPORT_OK!"=="1" (
-        echo       pythonocc-core installed successfully.
-      ) else (
-        call :log "WARN: pythonocc-core install completed but OCC import still fails."
-        echo WARNING: pythonocc-core install completed, but OCC import check still fails.
+      echo [4.1/5] Installing optional B-Rep dependency: pythonocc-core...
+      call :log "CMD START: \"%VENV_PY%\" -m pip install -r %OPTIONAL_BREP_REQ%"
+      "%VENV_PY%" -m pip install -r "%OPTIONAL_BREP_REQ%" >>"%RUNTIME_LOG%" 2>&1
+      set "RC=!ERRORLEVEL!"
+      call :log "CMD END rc=!RC!"
+      if not "!RC!"=="0" (
+        call :log "WARN: Optional B-Rep dependency install failed."
+        echo WARNING: Failed to install optional B-Rep dependency.
         echo          STEP/IGES import may be unavailable.
         echo          See runtime log: %RUNTIME_LOG%
+      ) else (
+        set "BREP_IMPORT_OK=0"
+        call :check_occ "%VENV_PY%"
+        if "!BREP_IMPORT_OK!"=="1" (
+          echo       pythonocc-core installed successfully.
+        ) else (
+          call :log "WARN: pythonocc-core install completed but OCC import still fails."
+          echo WARNING: pythonocc-core install completed, but OCC import check still fails.
+          echo          STEP/IGES import may be unavailable.
+          echo          See runtime log: %RUNTIME_LOG%
+        )
       )
     )
   )
@@ -267,8 +280,23 @@ if not defined BASE_PY (
   where.exe py >nul 2>&1
   if not errorlevel 1 (
     set "CAND_EXE="
-    for /f "usebackq delims=" %%P in (`py -3.13 -c "import sys; print(sys.executable)" 2^>nul`) do if not defined CAND_EXE set "CAND_EXE=%%P"
+    for /f "usebackq delims=" %%P in (`py -3.12 -c "import sys; print(sys.executable)" 2^>nul`) do if not defined CAND_EXE set "CAND_EXE=%%P"
     if defined CAND_EXE call :accept_python "!CAND_EXE!"
+    if not defined BASE_PY (
+      set "CAND_EXE="
+      for /f "usebackq delims=" %%P in (`py -3.11 -c "import sys; print(sys.executable)" 2^>nul`) do if not defined CAND_EXE set "CAND_EXE=%%P"
+      if defined CAND_EXE call :accept_python "!CAND_EXE!"
+    )
+    if not defined BASE_PY (
+      set "CAND_EXE="
+      for /f "usebackq delims=" %%P in (`py -3.10 -c "import sys; print(sys.executable)" 2^>nul`) do if not defined CAND_EXE set "CAND_EXE=%%P"
+      if defined CAND_EXE call :accept_python "!CAND_EXE!"
+    )
+    if not defined BASE_PY (
+      set "CAND_EXE="
+      for /f "usebackq delims=" %%P in (`py -3.13 -c "import sys; print(sys.executable)" 2^>nul`) do if not defined CAND_EXE set "CAND_EXE=%%P"
+      if defined CAND_EXE call :accept_python "!CAND_EXE!"
+    )
     if not defined BASE_PY (
       set "CAND_EXE="
       for /f "usebackq delims=" %%P in (`py -3 -c "import sys; print(sys.executable)" 2^>nul`) do if not defined CAND_EXE set "CAND_EXE=%%P"
@@ -286,10 +314,16 @@ if not defined BASE_PY (
   )
 )
 
-if not defined BASE_PY call :accept_python "%LocalAppData%\Programs\Python\Python313\python.exe"
 if not defined BASE_PY call :accept_python "%LocalAppData%\Programs\Python\Python312\python.exe"
-if not defined BASE_PY call :accept_python "C:\Python313\python.exe"
+if not defined BASE_PY call :accept_python "%LocalAppData%\Programs\Python\Python311\python.exe"
+if not defined BASE_PY call :accept_python "%LocalAppData%\Programs\Python\Python310\python.exe"
+if not defined BASE_PY call :accept_python "%LocalAppData%\Programs\Python\Python313\python.exe"
+if not defined BASE_PY call :accept_python "%LocalAppData%\Programs\Python\Python314\python.exe"
 if not defined BASE_PY call :accept_python "C:\Python312\python.exe"
+if not defined BASE_PY call :accept_python "C:\Python311\python.exe"
+if not defined BASE_PY call :accept_python "C:\Python310\python.exe"
+if not defined BASE_PY call :accept_python "C:\Python313\python.exe"
+if not defined BASE_PY call :accept_python "C:\Python314\python.exe"
 goto :eof
 
 :accept_python
