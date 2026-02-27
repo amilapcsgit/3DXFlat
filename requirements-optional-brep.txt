@@ -1,0 +1,3 @@
+# Optional CAD B-Rep import support (STEP/IGES via OpenCascade).
+# Keep this separate so STL/OBJ users are not forced to install OCC.
+pythonocc-core>=7.8,<8

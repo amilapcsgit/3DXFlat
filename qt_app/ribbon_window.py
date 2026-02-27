@@ -44,6 +44,7 @@ from shapely.geometry import MultiPolygon, Polygon
 from flatten_surface.flatten_surface import flatten_mesh
 from flatten_surface.import_export import _extract_open_patches_from_watertight, export_dxf, export_svg, get_unit_scale
 from nesting import build_nesting_layout, export_nesting_layout
+from qt_app.brep_import import is_brep_extension, is_occ_available
 from qt_app.flatten_panel import FlattenPanelWidget
 from qt_app import mesh_cutting
 from qt_app.mesh_io import load_mesh_file
@@ -1332,11 +1333,30 @@ class RibbonMainWindow(QMainWindow):
     def import_3d_dialog(self) -> None:
         if self._busy:
             return
-        path, _ = QFileDialog.getOpenFileName(self, "Import 3D Model", "", "3D files (*.stl *.obj *.stp *.step)")
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import 3D Model",
+            "",
+            "3D files (*.stl *.obj *.stp *.step *.iges *.igs)",
+        )
         if path:
             self.load_model_file(path)
 
     def load_model_file(self, path: str) -> None:
+        if is_brep_extension(path):
+            ok, reason = is_occ_available()
+            if not ok:
+                detail = f"\n\nImport error: {reason}" if reason else ""
+                QMessageBox.information(
+                    self,
+                    "B-Rep Import Optional Component",
+                    "STEP/IGES import requires optional dependency `pythonocc-core`.\n\n"
+                    "Install with:\n"
+                    "pip install pythonocc-core"
+                    f"{detail}",
+                )
+                self.log("WARN | STEP/IGES import requested but pythonocc-core is not available.")
+                return
         self._run_worker_task(
             task_name="load_model",
             payload={"path": path},
