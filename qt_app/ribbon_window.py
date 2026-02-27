@@ -4,7 +4,7 @@ import math
 from pathlib import Path
 import tempfile
 import time
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Sequence, Tuple
 
 import ezdxf
 import numpy as np
@@ -42,8 +42,9 @@ from PySide6.QtWidgets import (
 from shapely.geometry import MultiPolygon, Polygon
 
 from flatten_surface.flatten_surface import flatten_mesh
-from flatten_surface.import_export import get_unit_scale
+from flatten_surface.import_export import _extract_open_patches_from_watertight, export_dxf, export_svg, get_unit_scale
 from nesting import build_nesting_layout, export_nesting_layout
+from qt_app import mesh_cutting
 from qt_app.mesh_io import load_mesh_file
 from qt_app.unified_command_bar import UnifiedCommandBar
 from qt_app.viewcube import ViewCubeWidget
@@ -143,6 +144,9 @@ class Worker(QObject):
         self.progress.emit(20)
         vertices = np.asarray(self.payload["vertices"], dtype=np.float64)
         faces = np.asarray(self.payload["faces"], dtype=np.int64)
+        selection_active = bool(self.payload.get("selection_active", False))
+        anchor_edge_global = self.payload.get("anchor_edge")
+        cut_edges_global = self.payload.get("cut_edges") or []
         if faces.ndim != 2 or faces.shape[1] != 3:
             raise ValueError("Flatten faces must be triangular Nx3 array.")
         if len(faces) == 0:
@@ -156,6 +160,10 @@ class Worker(QObject):
         remap = {int(v): i for i, v in enumerate(used_vertices.tolist())}
         compact_faces = np.asarray([[remap[int(a)], remap[int(b)], remap[int(c)]] for a, b, c in faces], dtype=np.int64)
         compact_vertices = vertices[used_vertices]
+        anchor_edge = self._remap_edge_to_compact(anchor_edge_global, remap)
+        cut_edges = self._remap_edges_to_compact(cut_edges_global, remap)
+        warnings: List[str] = []
+        topology_notes: Dict[str, Dict[str, int]] = {}
 
         # Drop degenerate triangles after remap.
         keep_mask = (
@@ -169,6 +177,92 @@ class Worker(QObject):
 
         # Remove duplicate triangles and keep only the largest connected component.
         compact_faces = self._sanitize_faces(compact_faces)
+
+        if anchor_edge_global is not None and anchor_edge is None and selection_active:
+            raise ValueError(
+                "Anchor edge is outside the selected faces. "
+                "Pick the anchor on the selected patch or clear the face selection."
+            )
+
+        topo_before = mesh_cutting.topology_report(compact_faces)
+        topology_notes["before_cut"] = dict(topo_before)
+
+        # Preserve historical behavior when the user has not selected faces/cuts:
+        # try heuristic open-patch extraction from a closed solid.
+        if (not selection_active) and topo_before.get("open_edges", 0) == 0 and len(cut_edges) == 0:
+            auto_patch = self._auto_extract_open_patch(compact_vertices, compact_faces)
+            if auto_patch is not None:
+                compact_vertices, compact_faces = auto_patch
+                topo_before = mesh_cutting.topology_report(compact_faces)
+                topology_notes["before_cut"] = dict(topo_before)
+                if anchor_edge is not None:
+                    warnings.append("Anchor edge ignored because auto-patch extraction was used on the full solid.")
+                    anchor_edge = None
+
+        if topo_before.get("non_manifold_edges", 0) > 0:
+            raise ValueError(
+                f"Selected patch contains non-manifold edges ({topo_before['non_manifold_edges']}). "
+                "Use a cleaner surface selection."
+            )
+
+        if topo_before.get("open_edges", 0) == 0 and len(cut_edges) == 0:
+            raise ValueError(
+                "Closed mesh/selection detected (no open boundary). "
+                "Add relief cuts in Cut/Seam mode (and set an anchor edge), or select an open surface patch."
+            )
+
+        vertex_parent = np.arange(len(compact_vertices), dtype=np.int64)
+        anchor_edge_for_uv = anchor_edge
+
+        if len(cut_edges) > 0:
+            cut_res = mesh_cutting.cut_mesh_along_edges(compact_vertices, compact_faces, cut_edges)
+            used_cut_edges = [tuple(e) for e in cut_res.get("used_cut_edges", [])]
+            missing_cut_edges = [tuple(e) for e in cut_res.get("missing_cut_edges", [])]
+            if topo_before.get("open_edges", 0) == 0 and len(used_cut_edges) == 0:
+                raise ValueError(
+                    "The selected cut edges do not belong to the mesh patch being flattened. "
+                    "Pick cut edges on the selected surface."
+                )
+            if missing_cut_edges:
+                warnings.append(f"Ignored {len(missing_cut_edges)} cut edge(s) that were outside the flatten patch.")
+
+            compact_vertices = np.asarray(cut_res["vertices"], dtype=np.float64)
+            compact_faces = np.asarray(cut_res["faces"], dtype=np.int64)
+            vertex_parent = np.asarray(cut_res["vertex_parent"], dtype=np.int64)
+            topo_after_cut = dict(cut_res.get("topology_after", mesh_cutting.topology_report(compact_faces)))
+            topology_notes["after_cut"] = dict(topo_after_cut)
+
+            if topo_after_cut.get("non_manifold_edges", 0) > 0:
+                raise ValueError(
+                    f"Cut result is non-manifold ({topo_after_cut['non_manifold_edges']} edge(s)). "
+                    "Adjust the cut chain."
+                )
+            if topo_after_cut.get("open_edges", 0) == 0:
+                raise ValueError(
+                    "Cut edges did not create an open boundary. "
+                    "Add a continuous cut chain that opens the selected closed surface."
+                )
+            if topo_after_cut.get("connected_components", 0) != 1 or topo_after_cut.get("boundary_loops", 0) <= 0:
+                warnings.append(
+                    "Cut result is not a single disk-like patch (multiple components or no boundary loop). "
+                    "Flatten may be unstable; adjust cuts."
+                )
+
+            if anchor_edge is not None:
+                anchor_edge_for_uv = mesh_cutting.choose_anchor_edge_instance(compact_faces, vertex_parent, anchor_edge)
+                if anchor_edge_for_uv is None:
+                    warnings.append("Anchor edge could not be mapped after cutting; solver orientation was left automatic.")
+        else:
+            topology_notes["after_cut"] = dict(topo_before)
+            if anchor_edge is not None:
+                anchor_edge_for_uv = mesh_cutting.choose_anchor_edge_instance(
+                    compact_faces,
+                    np.arange(len(compact_vertices), dtype=np.int64),
+                    anchor_edge,
+                )
+                if anchor_edge_for_uv is None:
+                    warnings.append("Anchor edge is not part of the flatten patch; solver orientation was left automatic.")
+
         self._validate_open_patch_or_raise(compact_faces)
 
         res = flatten_mesh(
@@ -185,12 +279,126 @@ class Worker(QObject):
             auto_relief_cut=True,
             relief_threshold_pct=3.0,
         )
+
+        if anchor_edge_for_uv is not None:
+            ok = self._apply_anchor_orientation_and_reexport(
+                flatten_result=res,
+                anchor_edge=anchor_edge_for_uv,
+                path_output=str(self.payload["path_output"]),
+                input_unit=str(self.payload["input_unit"]),
+                seam_allowance_mm=float(self.payload["seam_allowance_mm"]),
+                label_text=self.payload.get("label_text"),
+            )
+            if not ok:
+                warnings.append("Anchor edge was degenerate in UV; output orientation was left unchanged.")
+
         self.progress.emit(95)
         self.progress.emit(100)
         return {
             "path_output": self.payload["path_output"],
             "flatten_result": res,
+            "warnings": warnings,
+            "topology": topology_notes,
         }
+
+    @staticmethod
+    def _remap_edge_to_compact(edge: Sequence[int] | None, remap: Dict[int, int]) -> Tuple[int, int] | None:
+        if edge is None:
+            return None
+        if len(edge) != 2:
+            return None
+        a = remap.get(int(edge[0]))
+        b = remap.get(int(edge[1]))
+        if a is None or b is None or int(a) == int(b):
+            return None
+        aa = int(a)
+        bb = int(b)
+        return (aa, bb) if aa < bb else (bb, aa)
+
+    @classmethod
+    def _remap_edges_to_compact(cls, edges: Iterable[Sequence[int]], remap: Dict[int, int]) -> List[Tuple[int, int]]:
+        mapped: List[Tuple[int, int]] = []
+        seen: set[Tuple[int, int]] = set()
+        for edge in edges or []:
+            m = cls._remap_edge_to_compact(edge, remap)
+            if m is None or m in seen:
+                continue
+            seen.add(m)
+            mapped.append(m)
+        mapped.sort()
+        return mapped
+
+    @staticmethod
+    def _auto_extract_open_patch(vertices: np.ndarray, faces: np.ndarray) -> Tuple[np.ndarray, np.ndarray] | None:
+        try:
+            mesh = trimesh.Trimesh(vertices=np.asarray(vertices), faces=np.asarray(faces), process=False)
+            if not bool(getattr(mesh, "is_watertight", False)):
+                return None
+            patches = _extract_open_patches_from_watertight(mesh)
+            if not patches:
+                return None
+            patch = patches[0]
+            return np.asarray(patch.vertices, dtype=np.float64), np.asarray(patch.faces, dtype=np.int64)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _apply_anchor_orientation_and_reexport(
+        *,
+        flatten_result: Dict,
+        anchor_edge: Sequence[int],
+        path_output: str,
+        input_unit: str,
+        seam_allowance_mm: float,
+        label_text: str | None,
+    ) -> bool:
+        unwrap = np.asarray(flatten_result.get("unwrap"), dtype=np.float64)
+        if unwrap.ndim != 2 or unwrap.shape[1] != 2:
+            return False
+        if len(anchor_edge) != 2:
+            return False
+        a = int(anchor_edge[0])
+        b = int(anchor_edge[1])
+        if a < 0 or b < 0 or a >= len(unwrap) or b >= len(unwrap) or a == b:
+            return False
+
+        p0 = np.asarray(unwrap[a], dtype=np.float64)
+        p1 = np.asarray(unwrap[b], dtype=np.float64)
+        d = p1 - p0
+        dn = float(np.linalg.norm(d))
+        if not np.isfinite(dn) or dn <= 1e-12:
+            return False
+
+        angle = -math.atan2(float(d[1]), float(d[0]))
+        c = math.cos(angle)
+        s = math.sin(angle)
+        rot = np.array([[c, -s], [s, c]], dtype=np.float64)
+
+        unwrap_aligned = (unwrap - p0[None, :]) @ rot.T
+        flatten_result["unwrap"] = unwrap_aligned
+
+        relief_path = flatten_result.get("relief_path_2d")
+        if relief_path is not None:
+            relief_arr = np.asarray(relief_path, dtype=np.float64)
+            if relief_arr.ndim == 2 and relief_arr.shape[1] == 2 and len(relief_arr) >= 2:
+                flatten_result["relief_path_2d"] = (relief_arr - p0[None, :]) @ rot.T
+
+        bounds = flatten_result.get("export_bounds") or []
+        scale = get_unit_scale(input_unit)
+        if str(path_output).lower().endswith(".dxf"):
+            export_dxf(
+                flatten_result["unwrap"],
+                bounds,
+                path_output,
+                scale=scale,
+                seam_allowance_mm=seam_allowance_mm,
+                align_to_x=False,
+                label_text=label_text,
+                relief_cut_path=flatten_result.get("relief_path_2d"),
+            )
+        else:
+            export_svg(flatten_result["unwrap"], bounds, path_output, scale=scale)
+        return True
 
     @staticmethod
     def _sanitize_faces(faces: np.ndarray) -> np.ndarray:
@@ -258,7 +466,7 @@ class Worker(QObject):
         if open_edges == 0:
             raise ValueError(
                 "Selected patch is closed (no open boundary). "
-                "Pick only the target sheet/surface to flatten."
+                "Select an open surface patch or add relief cuts in Cut/Seam mode."
             )
 
 
@@ -484,6 +692,7 @@ class RibbonMainWindow(QMainWindow):
         self.view_cube.show()
         self.viewport.cameraChanged.connect(self._on_viewport_camera_changed)
         self.viewport.facesSelected.connect(self._on_faces_selected)
+        self.viewport.seamStateChanged.connect(self._on_seam_state_changed)
         self.viewport.modelDropped.connect(self.load_model_file)
         self.viewport.flattenRequested.connect(self.run_flatten)
         self.viewport.splitToggleRequested.connect(self.toggle_2d_preview)
@@ -556,6 +765,48 @@ class RibbonMainWindow(QMainWindow):
         self.isolate_btn = bar.btn_isolate
         self.toggle_2d_btn = bar.btn_toggle_2d
 
+        # MVP seam/cut controls are injected into the existing command bar row without
+        # changing the shared command-bar class contract.
+        row2 = bar.row2_layout
+        self.cut_seam_mode_btn = QPushButton("Cut/Seam", self.header_area)
+        self.cut_seam_mode_btn.setObjectName("ToggleButton")
+        self.cut_seam_mode_btn.setCheckable(True)
+        self.cut_seam_mode_btn.setMinimumHeight(40)
+        self.cut_seam_mode_btn.setMaximumHeight(40)
+        self.cut_seam_mode_btn.setMinimumWidth(112)
+        self.cut_seam_mode_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self.seam_set_anchor_btn = QPushButton("Set Anchor", self.header_area)
+        self.seam_set_anchor_btn.setObjectName("StandardButton")
+        self.seam_set_anchor_btn.setMinimumHeight(40)
+        self.seam_set_anchor_btn.setMaximumHeight(40)
+        self.seam_set_anchor_btn.setMinimumWidth(104)
+        self.seam_set_anchor_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self.seam_toggle_cut_btn = QPushButton("Add/Remove Cut", self.header_area)
+        self.seam_toggle_cut_btn.setObjectName("StandardButton")
+        self.seam_toggle_cut_btn.setMinimumHeight(40)
+        self.seam_toggle_cut_btn.setMaximumHeight(40)
+        self.seam_toggle_cut_btn.setMinimumWidth(132)
+        self.seam_toggle_cut_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self.seam_clear_cuts_btn = QPushButton("Clear Cuts", self.header_area)
+        self.seam_clear_cuts_btn.setObjectName("StandardButton")
+        self.seam_clear_cuts_btn.setMinimumHeight(40)
+        self.seam_clear_cuts_btn.setMaximumHeight(40)
+        self.seam_clear_cuts_btn.setMinimumWidth(104)
+        self.seam_clear_cuts_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self.seam_status_label = QLabel("Seam: A[-] C[0]", self.header_area)
+        self.seam_status_label.setObjectName("FieldLabel")
+        self.seam_status_label.setMinimumWidth(124)
+
+        row2.insertWidget(row2.indexOf(self.single_pick_btn) + 1, self.cut_seam_mode_btn)
+        seam_insert_idx = row2.indexOf(self.toggle_2d_btn)
+        for w in (self.seam_set_anchor_btn, self.seam_toggle_cut_btn, self.seam_clear_cuts_btn, self.seam_status_label):
+            row2.insertWidget(seam_insert_idx, w)
+            seam_insert_idx += 1
+
         self.method_combo = bar.method_combo
         self.technical_mode_btn = bar.btn_technical
         self.show_edges_btn = bar.btn_edges
@@ -581,6 +832,7 @@ class RibbonMainWindow(QMainWindow):
         self.selection_mode_group.setExclusive(True)
         self.selection_mode_group.addButton(self.smart_select_btn)
         self.selection_mode_group.addButton(self.single_pick_btn)
+        self.selection_mode_group.addButton(self.cut_seam_mode_btn)
 
         self._wire_unified_command_bar_actions()
 
@@ -591,6 +843,7 @@ class RibbonMainWindow(QMainWindow):
 
         self.setCentralWidget(central)
         self._apply_selection_mode()
+        self._on_seam_state_changed({"active_edge": None, "anchor_edge": None, "cut_edges": []})
         self._update_workflow_enablement()
 
     def _wire_unified_command_bar_actions(self) -> None:
@@ -604,10 +857,14 @@ class RibbonMainWindow(QMainWindow):
 
         self.smart_select_btn.clicked.connect(self._apply_selection_mode)
         self.single_pick_btn.clicked.connect(self._apply_selection_mode)
+        self.cut_seam_mode_btn.clicked.connect(self._apply_selection_mode)
         self.clear_selection_btn.clicked.connect(self.viewport.clear_selection)
         self.invert_selection_btn.clicked.connect(self.viewport.invert_selection)
         self.isolate_btn.toggled.connect(self._on_isolate_toggled)
         self.toggle_2d_btn.toggled.connect(self.toggle_2d_preview)
+        self.seam_set_anchor_btn.clicked.connect(self._on_set_anchor_clicked)
+        self.seam_toggle_cut_btn.clicked.connect(self._on_toggle_cut_clicked)
+        self.seam_clear_cuts_btn.clicked.connect(self._on_clear_cuts_clicked)
 
         self.units_combo.currentTextChanged.connect(self._update_dimension_label_only)
         self.technical_mode_btn.toggled.connect(self.viewport.set_technical_mode)
@@ -715,10 +972,73 @@ class RibbonMainWindow(QMainWindow):
     def _apply_selection_mode(self) -> None:
         if self.smart_select_btn.isChecked():
             self.viewport.set_selection_mode("smart")
+            self.statusBar().showMessage("Face selection: Smart", 1500)
         elif self.single_pick_btn.isChecked():
             self.viewport.set_selection_mode("single")
+            self.statusBar().showMessage("Face selection: Single Pick", 1500)
+        elif hasattr(self, "cut_seam_mode_btn") and self.cut_seam_mode_btn.isChecked():
+            self.viewport.set_selection_mode("cut")
+            self.statusBar().showMessage("Cut/Seam mode: click a mesh edge, then Set Anchor / Add-Remove Cut.", 2500)
         else:
             self.viewport.set_selection_mode("off")
+
+    def _on_seam_state_changed(self, payload: Dict | object) -> None:
+        info = payload if isinstance(payload, dict) else {}
+        active = info.get("active_edge")
+        anchor = info.get("anchor_edge")
+        cuts = info.get("cut_edges") or []
+        anchor_txt = "-" if not anchor else f"{int(anchor[0])}-{int(anchor[1])}"
+        self.seam_status_label.setText(f"Seam: A[{anchor_txt}] C[{len(cuts)}]")
+        active_txt = "-" if not active else f"{int(active[0])}-{int(active[1])}"
+        self.seam_toggle_cut_btn.setToolTip(
+            f"Add/remove active cut edge (active: {active_txt})"
+            if active
+            else "Pick an edge in Cut/Seam mode, then add/remove it as a cut."
+        )
+        self.seam_set_anchor_btn.setToolTip(
+            f"Set active edge as anchor (active: {active_txt})"
+            if active
+            else "Pick an edge in Cut/Seam mode, then set it as anchor."
+        )
+        self.seam_clear_cuts_btn.setToolTip("Clear anchor and all cut edges")
+
+    def _on_set_anchor_clicked(self) -> None:
+        edge = self.viewport.set_anchor_from_active_edge()
+        if edge is None:
+            QMessageBox.information(
+                self,
+                "Set Anchor",
+                "No active edge selected.\n\nEnable Cut/Seam mode and click near a mesh edge first.",
+            )
+            return
+        self.log(f"INFO | Anchor edge set: {edge[0]}-{edge[1]}")
+        self.statusBar().showMessage(f"Anchor edge set: {edge[0]}-{edge[1]}", 2500)
+
+    def _on_toggle_cut_clicked(self) -> None:
+        result = self.viewport.toggle_cut_from_active_edge()
+        if result is None:
+            QMessageBox.information(
+                self,
+                "Cut Edge",
+                "No active edge selected.\n\nEnable Cut/Seam mode and click near a mesh edge first.",
+            )
+            return
+        action, edge = result
+        if action == "anchor_conflict":
+            QMessageBox.warning(
+                self,
+                "Cut Edge",
+                "The active edge is the current anchor edge.\n\nChoose another edge or change the anchor first.",
+            )
+            return
+        verb = "added" if action == "added" else "removed"
+        self.log(f"INFO | Cut edge {verb}: {edge[0]}-{edge[1]}")
+        self.statusBar().showMessage(f"Cut edge {verb}: {edge[0]}-{edge[1]}", 2500)
+
+    def _on_clear_cuts_clicked(self) -> None:
+        self.viewport.clear_cut_edges()
+        self.log("INFO | Cleared anchor and cut edges.")
+        self.statusBar().showMessage("Cleared anchor and cut edges.", 2000)
 
     def _on_isolate_toggled(self, checked: bool) -> None:
         self.viewport.set_isolate_mode(checked)
@@ -1031,6 +1351,7 @@ class RibbonMainWindow(QMainWindow):
         if faces_to_flatten is None or len(faces_to_flatten) == 0:
             QMessageBox.warning(self, "Flatten", "No valid faces selected.")
             return
+        selection_active = bool(self.viewport.get_selected_faces())
         tmp = Path(tempfile.gettempdir()) / "3dxflat_qt_preview.dxf"
         method = self.method_combo.currentText() or "ARAP"
         self._run_worker_task(
@@ -1038,6 +1359,9 @@ class RibbonMainWindow(QMainWindow):
             payload={
                 "vertices": self.loaded_vertices,
                 "faces": faces_to_flatten,
+                "selection_active": selection_active,
+                "anchor_edge": self.viewport.get_anchor_edge(),
+                "cut_edges": self.viewport.get_cut_edges(),
                 "path_output": str(tmp),
                 "input_unit": self.units_combo.currentText(),
                 "method": method,
@@ -1060,18 +1384,23 @@ class RibbonMainWindow(QMainWindow):
         self._update_workflow_enablement()
         self._update_distortion_gauge(res)
         self.log(f"INFO | Flatten complete ({res.get('method', 'ARAP')}).")
+        self._show_flatten_warnings(payload)
 
     def _run_flatten_to_path(self, path: str) -> None:
         faces_to_flatten = self._flatten_faces_payload()
         if self.loaded_vertices is None or faces_to_flatten is None or len(faces_to_flatten) == 0:
             QMessageBox.warning(self, "Export", "No valid faces selected.")
             return
+        selection_active = bool(self.viewport.get_selected_faces())
         method = self.method_combo.currentText() or "ARAP"
         self._run_worker_task(
             task_name="flatten",
             payload={
                 "vertices": self.loaded_vertices,
                 "faces": faces_to_flatten,
+                "selection_active": selection_active,
+                "anchor_edge": self.viewport.get_anchor_edge(),
+                "cut_edges": self.viewport.get_cut_edges(),
                 "path_output": path,
                 "input_unit": self.units_combo.currentText(),
                 "method": method,
@@ -1094,6 +1423,7 @@ class RibbonMainWindow(QMainWindow):
         self.flatten_completed = True
         self._update_workflow_enablement()
         self._update_distortion_gauge(res)
+        self._show_flatten_warnings(payload)
 
     def export_dxf(self) -> None:
         if self._busy:
@@ -1166,6 +1496,15 @@ class RibbonMainWindow(QMainWindow):
 
     def _apply_seam_to_preview(self) -> None:
         self.preview2d.set_seam(float(self.seam_slider.value()))
+
+    def _show_flatten_warnings(self, payload: Dict) -> None:
+        warnings = payload.get("warnings") or []
+        if not warnings:
+            return
+        text = "\n\n".join(str(w) for w in warnings)
+        QMessageBox.warning(self, "Flatten Warning", text)
+        for w in warnings:
+            self.log(f"WARN | {w}")
 
     def _update_distortion_gauge(self, flatten_result: Dict) -> None:
         metrics = flatten_result.get("metrics", {}) if flatten_result else {}
@@ -1267,6 +1606,12 @@ class RibbonMainWindow(QMainWindow):
             flatten_reason,
         )
         self._set_control_state(
+            self.cut_seam_mode_btn,
+            can_flatten,
+            "Cut/Seam mode (edge picking for anchor and relief cuts)",
+            flatten_reason,
+        )
+        self._set_control_state(
             self.clear_selection_btn,
             can_flatten,
             "Clear selected faces",
@@ -1284,6 +1629,25 @@ class RibbonMainWindow(QMainWindow):
             "Isolate selected region",
             flatten_reason,
         )
+        self._set_control_state(
+            self.seam_set_anchor_btn,
+            can_flatten,
+            "Set anchor edge from the active edge pick",
+            flatten_reason,
+        )
+        self._set_control_state(
+            self.seam_toggle_cut_btn,
+            can_flatten,
+            "Add/remove a relief cut edge from the active edge pick",
+            flatten_reason,
+        )
+        self._set_control_state(
+            self.seam_clear_cuts_btn,
+            can_flatten,
+            "Clear anchor and cut edges",
+            flatten_reason,
+        )
+        self.seam_status_label.setEnabled(can_flatten)
         self._set_control_state(
             self.technical_mode_btn,
             can_flatten,

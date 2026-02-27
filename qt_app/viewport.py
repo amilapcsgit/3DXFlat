@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 import math
-from typing import Dict, List, Set, Tuple
+from typing import Dict, List, Sequence, Set, Tuple
 
 import numpy as np
 from OpenGL import GL as ogl
@@ -257,6 +257,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
     modelDropped = Signal(str)
     flattenRequested = Signal()
     splitToggleRequested = Signal()
+    seamStateChanged = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         # Use euler mode for a CAD-style Z-up orbit with no accumulated roll.
@@ -298,6 +299,9 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._hover_face: int | None = None
         self._isolate_mode = False
         self._isolated_pick_indices: Set[int] = set()
+        self._active_edge_pick: Tuple[int, int] | None = None
+        self.anchor_edge: Tuple[int, int] | None = None
+        self.cut_edges: Set[Tuple[int, int]] = set()
 
         self._drag_start: Tuple[float, float] | None = None
         self._left_dragging = False
@@ -389,6 +393,30 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.selection_item.setDepthValue(2)
         self.selection_item.setVisible(False)
         self.addItem(self.selection_item)
+
+        self.anchor_edge_item = gl.GLLinePlotItem(
+            pos=np.empty((0, 3), dtype=np.float32),
+            color=(0.12, 0.86, 0.26, 0.95),
+            width=3.0,
+            antialias=True,
+            mode="lines",
+        )
+        self.anchor_edge_item.setGLOptions("translucent")
+        self.anchor_edge_item.setDepthValue(3)
+        self.anchor_edge_item.setVisible(False)
+        self.addItem(self.anchor_edge_item)
+
+        self.cut_edges_item = gl.GLLinePlotItem(
+            pos=np.empty((0, 3), dtype=np.float32),
+            color=(0.93, 0.18, 0.14, 0.95),
+            width=2.5,
+            antialias=True,
+            mode="lines",
+        )
+        self.cut_edges_item.setGLOptions("translucent")
+        self.cut_edges_item.setDepthValue(3)
+        self.cut_edges_item.setVisible(False)
+        self.addItem(self.cut_edges_item)
 
         self.overlay = QLabel("Drop 3D Model Here\n(STL / OBJ / STEP)", self)
         self.overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -497,7 +525,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         cx, cy, cz = map(float, self._mesh_center.tolist())
         yaw = float(self._model_yaw_deg)
         pitch = float(self._model_pitch_deg)
-        for item in (self.mesh_item, self.wire_item, self.selection_item):
+        for item in (self.mesh_item, self.wire_item, self.selection_item, self.cut_edges_item, self.anchor_edge_item):
             try:
                 item.resetTransform()
                 if abs(yaw) < 1e-9 and abs(pitch) < 1e-9:
@@ -763,6 +791,25 @@ class ThreeDViewportWidget(gl.GLViewWidget):
 
         if event.button() == Qt.MouseButton.LeftButton:
             try:
+                if self.selection_mode == "cut":
+                    if self.vertices is None or self.pick_faces is None or self._left_dragging:
+                        event.accept()
+                        return
+                    hit = self._raycast_face_hit(float(event.position().x()), float(event.position().y()))
+                    if hit is None:
+                        self._active_edge_pick = None
+                        self._update_seam_overlays()
+                        self._emit_seam_state_changed()
+                        event.accept()
+                        return
+                    face_id, hit_point = hit
+                    edge = self._nearest_edge_on_face(int(face_id), hit_point)
+                    self._active_edge_pick = edge
+                    self._update_seam_overlays()
+                    self._emit_seam_state_changed()
+                    event.accept()
+                    return
+
                 if self.selection_mode == "off" or self.vertices is None or self.pick_faces is None or self._left_dragging:
                     event.accept()
                     return
@@ -1123,6 +1170,9 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._hover_face = None
         self._isolate_mode = False
         self._isolated_pick_indices.clear()
+        self._active_edge_pick = None
+        self.anchor_edge = None
+        self.cut_edges.clear()
 
         self._face_normals = None
         self._face_adjacency = None
@@ -1158,6 +1208,10 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         )
         self.wire_item.opts["edgeColor"] = (*tokens.hex_to_rgbf(self._edge_color), 0.30)
         self.selection_item.setVisible(False)
+        self.anchor_edge_item.setData(pos=np.empty((0, 3), dtype=np.float32))
+        self.anchor_edge_item.setVisible(False)
+        self.cut_edges_item.setData(pos=np.empty((0, 3), dtype=np.float32))
+        self.cut_edges_item.setVisible(False)
         self._reset_model_display_rotation()
 
         self.setCameraPosition(pos=QVector3D(0.0, 0.0, 0.0), distance=600.0, elevation=24.0, azimuth=-58.0)
@@ -1168,6 +1222,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.dim_label.setText("")
         self.dim_label.hide()
         self.floating_orbit_btn.hide()
+        self._emit_seam_state_changed()
         self.update()
 
     def set_mesh(
@@ -1193,6 +1248,9 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._hover_face = None
         self._isolate_mode = False
         self._isolated_pick_indices.clear()
+        self._active_edge_pick = None
+        self.anchor_edge = None
+        self.cut_edges.clear()
         self._face_normals = None
         self._face_adjacency = None
         self._pick_cache_token = (len(self.vertices), len(self.pick_faces))
@@ -1210,6 +1268,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._build_pick_to_render_map()
         self._prepare_pick_raycast_cache()
         self._update_mesh_visuals()
+        self._update_seam_overlays()
         self._reset_model_display_rotation()
         self._fit_camera_to_mesh()
         self._update_grid_extent()
@@ -1218,6 +1277,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.dim_label.setText(f"{name} | LxWxH: {lx:.1f} x {ly:.1f} x {lz:.1f} mm")
         self.dim_label.show()
         self.overlay.hide()
+        self._emit_seam_state_changed()
         self._on_camera_event()
 
     # Compatibility alias used in CAD viewport directives.
@@ -1319,6 +1379,53 @@ class ThreeDViewportWidget(gl.GLViewWidget):
     def invert_selection(self) -> None:
         self._invert_selection()
 
+    def get_active_edge_pick(self) -> Tuple[int, int] | None:
+        return self._active_edge_pick
+
+    def get_anchor_edge(self) -> Tuple[int, int] | None:
+        return self.anchor_edge
+
+    def get_cut_edges(self) -> List[Tuple[int, int]]:
+        return sorted(self.cut_edges)
+
+    def set_anchor_from_active_edge(self) -> Tuple[int, int] | None:
+        if self._active_edge_pick is None:
+            return None
+        self.anchor_edge = self._normalized_edge(self._active_edge_pick)
+        if self.anchor_edge in self.cut_edges:
+            self.cut_edges.discard(self.anchor_edge)
+        self._update_seam_overlays()
+        self._emit_seam_state_changed()
+        return self.anchor_edge
+
+    def toggle_cut_from_active_edge(self) -> Tuple[str, Tuple[int, int]] | None:
+        if self._active_edge_pick is None:
+            return None
+        edge = self._normalized_edge(self._active_edge_pick)
+        if self.anchor_edge is not None and edge == self.anchor_edge:
+            return ("anchor_conflict", edge)
+        if edge in self.cut_edges:
+            self.cut_edges.discard(edge)
+            action = "removed"
+        else:
+            self.cut_edges.add(edge)
+            action = "added"
+        self._update_seam_overlays()
+        self._emit_seam_state_changed()
+        return (action, edge)
+
+    def clear_cut_edges(self) -> None:
+        changed = bool(self.cut_edges) or (self.anchor_edge is not None) or (self._active_edge_pick is not None)
+        self.cut_edges.clear()
+        self.anchor_edge = None
+        self._active_edge_pick = None
+        self._update_seam_overlays()
+        if changed:
+            self._emit_seam_state_changed()
+
+    def clear_seam_state(self) -> None:
+        self.clear_cut_edges()
+
     def set_isolate_mode(self, enabled: bool) -> None:
         if bool(enabled):
             if not self.selected_faces:
@@ -1364,6 +1471,15 @@ class ThreeDViewportWidget(gl.GLViewWidget):
     def _on_camera_event(self) -> None:
         self._camera_debounce.start()
         self._update_floating_orbit_button_position()
+
+    def _emit_seam_state_changed(self) -> None:
+        self.seamStateChanged.emit(
+            {
+                "active_edge": None if self._active_edge_pick is None else tuple(self._active_edge_pick),
+                "anchor_edge": None if self.anchor_edge is None else tuple(self.anchor_edge),
+                "cut_edges": [tuple(e) for e in sorted(self.cut_edges)],
+            }
+        )
 
     def _emit_camera_changed(self) -> None:
         center = self.opts["center"]
@@ -1796,7 +1912,39 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         else:
             self.selection_item.setVisible(False)
 
+        self._update_seam_overlays()
         self.update()
+
+    def _edge_segments_positions(self, edges: Sequence[Tuple[int, int]]) -> np.ndarray:
+        if self.vertices32 is None or len(edges) == 0:
+            return np.empty((0, 3), dtype=np.float32)
+        n = len(self.vertices32)
+        pts: List[np.ndarray] = []
+        for a, b in sorted({self._normalized_edge(e) for e in edges}):
+            if a < 0 or b < 0 or a >= n or b >= n or a == b:
+                continue
+            pts.append(self.vertices32[a])
+            pts.append(self.vertices32[b])
+        if not pts:
+            return np.empty((0, 3), dtype=np.float32)
+        return np.ascontiguousarray(np.vstack(pts).astype(np.float32, copy=False))
+
+    def _update_seam_overlays(self) -> None:
+        if self.vertices32 is None:
+            self.anchor_edge_item.setData(pos=np.empty((0, 3), dtype=np.float32))
+            self.anchor_edge_item.setVisible(False)
+            self.cut_edges_item.setData(pos=np.empty((0, 3), dtype=np.float32))
+            self.cut_edges_item.setVisible(False)
+            return
+
+        anchor_pos = self._edge_segments_positions([self.anchor_edge] if self.anchor_edge is not None else [])
+        cut_pos = self._edge_segments_positions(sorted(self.cut_edges))
+
+        self.anchor_edge_item.setData(pos=anchor_pos, color=(0.12, 0.86, 0.26, 0.95))
+        self.anchor_edge_item.setVisible(len(anchor_pos) >= 2)
+        self.cut_edges_item.setData(pos=cut_pos, color=(0.93, 0.18, 0.14, 0.95))
+        self.cut_edges_item.setVisible(len(cut_pos) >= 2)
+        self._apply_model_display_transform()
 
     def _schedule_hover_pick(self, sx: float, sy: float) -> None:
         self._pending_hover_pos = (float(sx), float(sy))
@@ -1893,6 +2041,98 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         if face_indices is None:
             return nearest_local
         return int(face_indices[nearest_local])
+
+    def _raycast_face_hit(self, sx: float, sy: float, face_indices: np.ndarray | None = None) -> Tuple[int, np.ndarray] | None:
+        if self._pick_tri_a is None or self._pick_e1 is None or self._pick_e2 is None or self.pick_faces is None:
+            return None
+        ray = self._screen_ray(sx, sy)
+        if ray is None:
+            return None
+        origin, direction = ray
+        if self._model_turntable_enabled and (abs(self._model_yaw_deg) > 1e-9 or abs(self._model_pitch_deg) > 1e-9):
+            r_inv = self._model_rotation_matrix().T
+            center = self._mesh_center.astype(np.float64, copy=False)
+            origin = center + (r_inv @ (origin - center))
+            direction = r_inv @ direction
+            dnorm = float(np.linalg.norm(direction))
+            if dnorm > 1e-12:
+                direction = direction / dnorm
+
+        if face_indices is None:
+            a = self._pick_tri_a
+            e1 = self._pick_e1
+            e2 = self._pick_e2
+        else:
+            if len(face_indices) == 0:
+                return None
+            a = self._pick_tri_a[face_indices]
+            e1 = self._pick_e1[face_indices]
+            e2 = self._pick_e2[face_indices]
+
+        eps = 1e-9
+        pvec = np.cross(np.broadcast_to(direction, a.shape), e2)
+        det = np.einsum("ij,ij->i", e1, pvec)
+        valid = np.abs(det) > eps
+        if not np.any(valid):
+            return None
+
+        inv_det = np.zeros_like(det)
+        inv_det[valid] = 1.0 / det[valid]
+        tvec = origin - a
+        u = np.einsum("ij,ij->i", tvec, pvec) * inv_det
+        valid &= (u >= 0.0) & (u <= 1.0)
+        if not np.any(valid):
+            return None
+
+        qvec = np.cross(tvec, e1)
+        v = np.einsum("ij,j->i", qvec, direction) * inv_det
+        valid &= (v >= 0.0) & ((u + v) <= 1.0)
+        if not np.any(valid):
+            return None
+
+        t = np.einsum("ij,ij->i", e2, qvec) * inv_det
+        valid &= t > eps
+        if not np.any(valid):
+            return None
+
+        cand = np.where(valid)[0]
+        nearest_local = int(cand[int(np.argmin(t[cand]))])
+        hit_face = nearest_local if face_indices is None else int(face_indices[nearest_local])
+        hit_point = a[nearest_local] + (u[nearest_local] * e1[nearest_local]) + (v[nearest_local] * e2[nearest_local])
+        return int(hit_face), np.asarray(hit_point, dtype=np.float64)
+
+    @staticmethod
+    def _normalized_edge(edge: Sequence[int]) -> Tuple[int, int]:
+        a = int(edge[0])
+        b = int(edge[1])
+        return (a, b) if a < b else (b, a)
+
+    @staticmethod
+    def _distance_sq_point_segment(p: np.ndarray, a: np.ndarray, b: np.ndarray) -> float:
+        ab = b - a
+        denom = float(np.dot(ab, ab))
+        if denom <= 1e-18:
+            d = p - a
+            return float(np.dot(d, d))
+        t = float(np.dot(p - a, ab) / denom)
+        t = max(0.0, min(1.0, t))
+        q = a + t * ab
+        d = p - q
+        return float(np.dot(d, d))
+
+    def _nearest_edge_on_face(self, face_id: int, hit_point: np.ndarray) -> Tuple[int, int]:
+        if self.pick_faces is None or self.vertices is None:
+            raise ValueError("No mesh loaded.")
+        tri = self.pick_faces[int(face_id)]
+        ids = [int(tri[0]), int(tri[1]), int(tri[2])]
+        pts = [self.vertices[ids[0]], self.vertices[ids[1]], self.vertices[ids[2]]]
+        candidate_edges = [
+            (ids[0], ids[1], pts[0], pts[1]),
+            (ids[1], ids[2], pts[1], pts[2]),
+            (ids[2], ids[0], pts[2], pts[0]),
+        ]
+        best = min(candidate_edges, key=lambda e: self._distance_sq_point_segment(hit_point, e[2], e[3]))
+        return self._normalized_edge((best[0], best[1]))
 
     def _ensure_selection_topology(self) -> None:
         if self.vertices is None or self.pick_faces is None:

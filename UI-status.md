@@ -608,6 +608,54 @@ Short changelog note:
   - current PH2-VP target sizing uses a fixed `88px` row2 command strip with two internal `40px` lines
 - Orbit HUD icon now loads from file path `ui/icons/Industrial_SVG_Set_v1/orbit.svg` (no Base64 path for HUD orbit)
 
+### 6. Seam/Cut MVP (Seamfix Branch)
+
+Implemented in:
+
+- `qt_app/ribbon_window.py`
+- `qt_app/viewport.py`
+- `qt_app/mesh_cutting.py` (new)
+
+Changes:
+
+1. Selection-driven flatten behavior is now explicit in the Qt pipeline
+   - If faces are selected, the flatten worker builds/uses the selected face submesh.
+   - If no faces are selected, flatten still uses the full mesh path and preserves legacy open-patch fallback behavior.
+
+2. Added Cut/Seam interaction mode in the viewport workflow
+   - New row-2 control: `Cut/Seam` toggle (alongside `Smart Select` / `Single Pick`).
+   - New actions: `Set Anchor`, `Add/Remove Cut`, `Clear Cuts`.
+   - Added seam status text in row-2: `Seam: A[...] C[...]`.
+
+3. Added edge picking + seam visualization in `ThreeDViewportWidget`
+   - New seam state signal: `seamStateChanged`.
+   - In Cut/Seam mode, LMB picks the nearest edge on the ray-hit triangle.
+   - Overlay rendering:
+     - anchor edge = green line
+     - cut edges = red lines
+
+4. Added topology cutting utility module
+   - `qt_app/mesh_cutting.py` provides:
+     - topology diagnostics (`open_edges`, non-manifold, components, boundary loops),
+     - seam cutting via vertex-duplication fan splitting,
+     - anchor-edge remapping helpers after vertex duplication.
+
+5. Flatten worker now supports closed meshes with user-defined cuts
+   - Closed patch + no cuts now raises a user-facing blocking error:
+     - "Closed mesh/selection detected (no open boundary)..."
+   - If cuts are present, mesh is cut before flatten solve.
+   - Post-cut topology is checked; warnings are emitted for non-disk-like outcomes.
+   - If no user selection and the mesh is closed, legacy auto-extract-open-patch fallback is retained.
+
+6. Anchor edge is used for deterministic output orientation
+   - After solve, UVs are rotated/translated so the anchor edge is horizontal near origin.
+   - DXF/SVG output is re-exported with the aligned UV frame.
+
+Current status / limitation observed in runtime:
+
+- The seam controls are functionally wired, but **the row-2 command surface is now overcrowded** and does not provide strong visual guidance for the seam workflow yet.
+- This is visible in the latest runtime screenshot and is the next planned UI polish/fix step.
+
 ## How the 3D Viewport Currently Works
 
 `ThreeDViewportWidget` (`qt_app/viewport.py`) extends `pyqtgraph.opengl.GLViewWidget` and manages:
@@ -700,11 +748,20 @@ Key rendering flow:
    - Some controls (e.g., seam slider / quality gauge / export-path label) remain instantiated but hidden to preserve legacy callback/state paths.
    - This is deliberate during stabilization and should be cleaned once runtime behavior is confirmed.
 
+15. Seam/Cut controls are currently dense in the row-2 command bar.
+   - The added `Cut/Seam`, `Set Anchor`, `Add/Remove Cut`, `Clear Cuts`, and seam status text are functional but visually crowded.
+   - Discoverability and interaction clarity are not yet at CAD-grade quality; this requires a dedicated UX/layout pass.
+
+16. Seam edge picking has minimal affordance feedback.
+   - The active edge is tracked internally and cut/anchor overlays render, but the current command flow still depends on users understanding mode + button order.
+   - A follow-up should improve guided state feedback and command grouping.
+
 ## Validation Performed
 
 - Latest follow-up pass syntax checks:
   - `python -m py_compile qt_app/ribbon_window.py`
   - `python -m py_compile qt_app/viewport.py`
+  - `python -m py_compile qt_app/mesh_cutting.py`
 - PHASE 2 step-gate syntax checks:
   - `python -m py_compile qt_app/unified_command_bar.py`
   - `python -m py_compile qt_app/ribbon_window.py`
