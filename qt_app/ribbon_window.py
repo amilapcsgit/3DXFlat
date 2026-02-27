@@ -1076,6 +1076,7 @@ class RibbonMainWindow(QMainWindow):
         active = info.get("hover_edge") or info.get("active_edge")
         anchor = info.get("anchor_edge")
         cuts = info.get("cut_edges") or []
+        cut_count = int(info.get("cut_chain_count", len(cuts)))
         boundary_edges = {self._norm_edge(e) for e in (info.get("boundary_edges") or [])}
         anchor_boundary = None
         if anchor is not None:
@@ -1097,7 +1098,7 @@ class RibbonMainWindow(QMainWindow):
         anchor_status = "none" if not anchor else "set"
         strategy = str(info.get("pick_strategy", "-"))
         self.flatten_panel.set_status_line(
-            f"Seam: A[{anchor_status}]  C[{len(cuts)}]  Patch: {patch_status}  Hover: {active_txt}  Pick:{strategy}"
+            f"Seam: A[{anchor_status}]  C[{cut_count}]  Patch: {patch_status}  Hover: {active_txt}  Pick:{strategy}"
         )
 
     def _on_set_anchor_clicked(self) -> None:
@@ -1108,6 +1109,10 @@ class RibbonMainWindow(QMainWindow):
                 "Set Anchor",
                 "No active edge selected.\n\nEnable Cut/Seam mode and click near a mesh edge first.",
             )
+            return
+        if edge[0] < 0 or edge[1] < 0:
+            self.log("INFO | Anchor chain set.")
+            self.statusBar().showMessage("Anchor chain set.", 2500)
             return
         self.log(f"INFO | Anchor edge set: {edge[0]}-{edge[1]}")
         self.statusBar().showMessage(f"Anchor edge set: {edge[0]}-{edge[1]}", 2500)
@@ -1128,6 +1133,11 @@ class RibbonMainWindow(QMainWindow):
                 "Cut Edge",
                 "The active edge is the current anchor edge.\n\nChoose another edge or change the anchor first.",
             )
+            return
+        if edge[0] < 0 or edge[1] < 0:
+            verb = "added" if action == "added" else "removed"
+            self.log(f"INFO | Cut chain {verb}.")
+            self.statusBar().showMessage(f"Cut chain {verb}.", 2500)
             return
         verb = "added" if action == "added" else "removed"
         self.log(f"INFO | Cut edge {verb}: {edge[0]}-{edge[1]}")
@@ -1158,6 +1168,10 @@ class RibbonMainWindow(QMainWindow):
                 "Auto Bordo",
                 "Impossibile stimare automaticamente il bordo.\n\nSeleziona facce valide e riprova.",
             )
+            return
+        if edge[0] < 0 or edge[1] < 0:
+            self.log("INFO | Auto anchor chain selected.")
+            self.statusBar().showMessage("Auto bordo chain selezionato.", 2200)
             return
         self.log(f"INFO | Auto anchor selected: {edge[0]}-{edge[1]}")
         self.statusBar().showMessage(f"Auto bordo: {edge[0]}-{edge[1]}", 2200)

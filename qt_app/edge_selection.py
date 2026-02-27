@@ -204,3 +204,179 @@ def fallback_pick_edge_on_triangle(
     if best_payload is None or best_d > tol_sq:
         return None
     return best_payload
+
+
+def _point_key3(point: Sequence[float], tol: float) -> Tuple[int, int, int]:
+    p = np.asarray(point, dtype=np.float64)
+    scale = max(float(tol), 1e-9)
+    return (
+        int(np.rint(p[0] / scale)),
+        int(np.rint(p[1] / scale)),
+        int(np.rint(p[2] / scale)),
+    )
+
+
+def build_edge_chains(
+    edge_ids: Iterable[int],
+    edge_polylines: Dict[int, np.ndarray],
+    *,
+    endpoint_tol: float = 1e-5,
+) -> List[Tuple[int, ...]]:
+    valid_edges: List[int] = []
+    endpoints: Dict[int, Tuple[Tuple[int, int, int], Tuple[int, int, int]]] = {}
+
+    for edge_id in sorted({int(x) for x in edge_ids}):
+        poly = np.asarray(edge_polylines.get(int(edge_id), np.empty((0, 3))), dtype=np.float64)
+        if poly.ndim != 2 or poly.shape[1] != 3 or len(poly) < 2:
+            continue
+        a = _point_key3(poly[0], endpoint_tol)
+        b = _point_key3(poly[-1], endpoint_tol)
+        endpoints[int(edge_id)] = (a, b)
+        valid_edges.append(int(edge_id))
+
+    if not valid_edges:
+        return []
+
+    vertex_to_edges: Dict[Tuple[int, int, int], List[int]] = defaultdict(list)
+    edge_to_vertices: Dict[int, Tuple[Tuple[int, int, int], Tuple[int, int, int]]] = {}
+    for edge_id in valid_edges:
+        v0, v1 = endpoints[edge_id]
+        edge_to_vertices[edge_id] = (v0, v1)
+        vertex_to_edges[v0].append(edge_id)
+        vertex_to_edges[v1].append(edge_id)
+
+    # Connected components over edges.
+    comps: List[List[int]] = []
+    unseen = set(valid_edges)
+    while unseen:
+        start = min(unseen)
+        stack = [start]
+        unseen.discard(start)
+        comp: List[int] = []
+        while stack:
+            cur = stack.pop()
+            comp.append(cur)
+            v0, v1 = edge_to_vertices[cur]
+            for v in (v0, v1):
+                for nb in vertex_to_edges[v]:
+                    if nb in unseen:
+                        unseen.discard(nb)
+                        stack.append(nb)
+        comps.append(sorted(comp))
+
+    chains: List[Tuple[int, ...]] = []
+    for comp in comps:
+        if len(comp) == 1:
+            chains.append((int(comp[0]),))
+            continue
+
+        comp_edges = set(comp)
+        comp_vertex_to_edges: Dict[Tuple[int, int, int], List[int]] = defaultdict(list)
+        for edge_id in comp:
+            v0, v1 = edge_to_vertices[edge_id]
+            comp_vertex_to_edges[v0].append(edge_id)
+            comp_vertex_to_edges[v1].append(edge_id)
+
+        degree1_vertices = sorted([v for v, linked in comp_vertex_to_edges.items() if len(linked) == 1])
+        if degree1_vertices:
+            start_vertex = degree1_vertices[0]
+            start_edge = min(comp_vertex_to_edges[start_vertex])
+        else:
+            start_edge = min(comp)
+            start_vertex = edge_to_vertices[start_edge][0]
+
+        ordered: List[int] = [int(start_edge)]
+        used_local = {int(start_edge)}
+        v0, v1 = edge_to_vertices[start_edge]
+        current_vertex = v1 if v0 == start_vertex else v0
+
+        while True:
+            candidates = [e for e in comp_vertex_to_edges[current_vertex] if e in comp_edges and e not in used_local]
+            if len(candidates) != 1:
+                break
+            nxt = int(candidates[0])
+            used_local.add(nxt)
+            ordered.append(nxt)
+            a, b = edge_to_vertices[nxt]
+            current_vertex = b if a == current_vertex else a
+            if len(used_local) == len(comp_edges):
+                break
+
+        if len(used_local) < len(comp_edges):
+            # Branching topology: deterministic fallback (sorted IDs).
+            chains.append(tuple(sorted(int(e) for e in comp)))
+        else:
+            chains.append(tuple(ordered))
+    return sorted(chains, key=lambda c: (len(c), c))
+
+
+def chain_length_from_polylines(chain: Sequence[int], edge_polylines: Dict[int, np.ndarray]) -> float:
+    total = 0.0
+    for edge_id in chain:
+        poly = np.asarray(edge_polylines.get(int(edge_id), np.empty((0, 3))), dtype=np.float64)
+        if poly.ndim != 2 or poly.shape[1] != 3 or len(poly) < 2:
+            continue
+        seg = poly[1:] - poly[:-1]
+        total += float(np.sum(np.linalg.norm(seg, axis=1)))
+    return float(total)
+
+
+def _project_xyz_to_screen(points_xyz: np.ndarray, viewproj: np.ndarray, viewport_w: int, viewport_h: int) -> Tuple[np.ndarray, np.ndarray]:
+    pts = np.asarray(points_xyz, dtype=np.float64)
+    if pts.ndim != 2 or pts.shape[1] != 3:
+        return np.empty((0, 2), dtype=np.float64), np.empty((0,), dtype=bool)
+    m = np.asarray(viewproj, dtype=np.float64)
+    if m.shape != (4, 4):
+        raise ValueError("viewproj must be 4x4.")
+    if len(pts) == 0:
+        return np.empty((0, 2), dtype=np.float64), np.empty((0,), dtype=bool)
+    vh = np.ones((len(pts), 1), dtype=np.float64)
+    clip = (m @ np.hstack([pts, vh]).T).T
+    w = clip[:, 3]
+    valid = np.abs(w) > 1e-12
+    ndc = np.zeros((len(pts), 3), dtype=np.float64)
+    ndc[valid] = clip[valid, :3] / w[valid][:, None]
+    screen = np.empty((len(pts), 2), dtype=np.float64)
+    vw = max(1, int(viewport_w))
+    vh_px = max(1, int(viewport_h))
+    screen[:, 0] = (ndc[:, 0] * 0.5 + 0.5) * float(vw)
+    screen[:, 1] = (1.0 - (ndc[:, 1] * 0.5 + 0.5)) * float(vh_px)
+    in_depth = (ndc[:, 2] >= -1.5) & (ndc[:, 2] <= 1.5)
+    return screen, (valid & in_depth)
+
+
+def screen_space_pick_polyline_chain(
+    mouse_xy: Sequence[float],
+    chains: Iterable[Sequence[int]],
+    edge_polylines: Dict[int, np.ndarray],
+    viewproj: np.ndarray,
+    viewport_w: int,
+    viewport_h: int,
+    px_tol: float,
+) -> Tuple[int, ...] | None:
+    p = np.asarray([float(mouse_xy[0]), float(mouse_xy[1])], dtype=np.float64)
+    tol_sq = float(px_tol) * float(px_tol)
+    best_chain: Tuple[int, ...] | None = None
+    best_dist = float("inf")
+
+    for chain in chains:
+        chain_tuple = tuple(int(x) for x in chain)
+        chain_best = float("inf")
+        for edge_id in chain_tuple:
+            poly = np.asarray(edge_polylines.get(int(edge_id), np.empty((0, 3))), dtype=np.float64)
+            if poly.ndim != 2 or poly.shape[1] != 3 or len(poly) < 2:
+                continue
+            screen, valid = _project_xyz_to_screen(poly, viewproj, viewport_w, viewport_h)
+            for i in range(len(screen) - 1):
+                if not (bool(valid[i]) and bool(valid[i + 1])):
+                    continue
+                d = _point_to_segment_distance_sq(p, screen[i], screen[i + 1])
+                if d < chain_best:
+                    chain_best = d
+        if chain_best < best_dist:
+            best_dist = chain_best
+            best_chain = chain_tuple
+
+    if best_chain is None or best_dist > tol_sq:
+        return None
+    return best_chain
