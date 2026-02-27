@@ -197,9 +197,9 @@ if exist "%OPTIONAL_BREP_REQ%" (
   set "BREP_IMPORT_OK=0"
   call :check_occ "%VENV_PY%"
   if "!BREP_IMPORT_OK!"=="1" (
-    echo [4.1/5] Optional B-Rep dependency present (pythonocc-core).
+    echo [4.1/5] Optional B-Rep dependency present: pythonocc-core.
   ) else (
-    echo [4.1/5] Installing optional B-Rep dependency (pythonocc-core)...
+    echo [4.1/5] Installing optional B-Rep dependency: pythonocc-core...
     call :log "CMD START: \"%VENV_PY%\" -m pip install -r %OPTIONAL_BREP_REQ%"
     "%VENV_PY%" -m pip install -r "%OPTIONAL_BREP_REQ%" >>"%RUNTIME_LOG%" 2>&1
     set "RC=!ERRORLEVEL!"
