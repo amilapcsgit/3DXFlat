@@ -671,6 +671,65 @@ Current status / limitation observed in runtime:
 - The PropertyManager-like panel and hover/click seam picking are in place.
 - Remaining work is visual rhythm/polish (spacing, typography, and panel density tuning against reference screenshots).
 
+### 7. B-Rep Import + CAD Face/Edge Semantics (B-rep Branch)
+
+Implemented in:
+
+- `qt_app/brep_import.py` (new)
+- `qt_app/ribbon_window.py`
+- `qt_app/viewport.py`
+- `qt_app/edge_selection.py`
+- `requirements-optional-brep.txt` (new)
+- `BREP_PLAN.md` (new architecture plan)
+
+What was added:
+
+1. Optional OpenCascade dependency path
+   - New optional dependency file: `requirements-optional-brep.txt` with `pythonocc-core`.
+   - STEP/IGES import is now capability-gated:
+     - if OCC is missing, UI shows a clear message and does not crash.
+   - Import filters now include:
+     - `*.step *.stp *.iges *.igs` (plus STL/OBJ).
+
+2. Native B-Rep loader with topology mappings
+   - `load_brep(path)` now reads STEP/IGES via OpenCascade readers.
+   - Tessellation uses `BRepMesh_IncrementalMesh`.
+   - Output includes:
+     - global triangle mesh (`tri_mesh_vertices`, `tri_mesh_faces`),
+     - `tri_face_id` mapping triangle -> CAD face index,
+     - `edge_polylines`,
+     - `face_boundary_edge_ids`,
+     - B-Rep face/edge counts and bbox metadata.
+
+3. Active model type support in UI pipeline
+   - `RibbonMainWindow` now tracks `model_type` (`mesh` or `brep`) and loaded B-Rep metadata.
+   - Worker load path returns a B-Rep payload including CAD topology metadata.
+   - STL/OBJ flow is preserved.
+
+4. CAD face selection semantics
+   - In B-Rep mode, clicking a tessellated triangle selects its parent CAD face (`tri_face_id`) rather than a single triangle.
+   - Selection count in the left panel now reflects CAD face count.
+   - Invert/isolate/frame-selected logic was updated so B-Rep face IDs still map correctly to triangle indices for rendering.
+
+5. SolidWorks-like boundary chain seam picking for B-Rep patches
+   - For selected CAD faces, boundary B-Rep edges are derived from `face_boundary_edge_ids` (edges used by exactly one selected face).
+   - Boundary edges are grouped into maximal chains (`edge_selection.build_edge_chains`).
+   - Hover and click in Cut/Seam mode use screen-space chain picking:
+     - `Shift+Click` sets anchor chain,
+     - `Click` toggles relief cut chain.
+   - Overlay rendering shows hovered/anchor/cut chains using B-Rep edge polylines.
+
+6. Flatten integration (triangle pipeline preserved)
+   - Flatten still consumes triangles only.
+   - B-Rep chain selections are mapped to tessellated mesh edge cuts and fed into existing seam-cut flow.
+   - Closed selected patches without effective cuts still raise blocking messages in flatten worker.
+
+Current B-Rep limitation:
+
+- Chain->mesh edge mapping is currently nearest-vertex/polyline based and heuristic.
+- If mapping yields zero valid mesh edges for a chosen chain, flatten may report that cuts are outside the patch.
+- UI still shows representative edges in the panel (not full chain names yet).
+
 ## How the 3D Viewport Currently Works
 
 `ThreeDViewportWidget` (`qt_app/viewport.py`) extends `pyqtgraph.opengl.GLViewWidget` and manages:
