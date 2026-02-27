@@ -975,12 +975,25 @@ class RibbonMainWindow(QMainWindow):
         if self.smart_select_btn.isChecked():
             self.viewport.set_selection_mode("smart")
             self.statusBar().showMessage("Face selection: Smart", 1500)
+            self.flatten_panel.set_guidance_text(
+                "Seleziona facce con Smart/Single.\n"
+                "Poi passa a Cut/Seam per scegliere bordo e tagli."
+            )
         elif self.single_pick_btn.isChecked():
             self.viewport.set_selection_mode("single")
             self.statusBar().showMessage("Face selection: Single Pick", 1500)
+            self.flatten_panel.set_guidance_text(
+                "Seleziona facce con click (Ctrl aggiunge, Alt rimuove).\n"
+                "Poi attiva Cut/Seam."
+            )
         elif hasattr(self, "cut_seam_mode_btn") and self.cut_seam_mode_btn.isChecked():
             self.viewport.set_selection_mode("cut")
             self.statusBar().showMessage("Cut/Seam mode: hover edge, click=cut, Shift+click=anchor.", 2500)
+            self.flatten_panel.set_guidance_text(
+                "Cut/Seam: passa vicino al bordo per evidenziare.\n"
+                "Click = taglio di scarico.\n"
+                "Shift+Click = bordo anchor."
+            )
         else:
             self.viewport.set_selection_mode("off")
 
@@ -990,7 +1003,13 @@ class RibbonMainWindow(QMainWindow):
         anchor = info.get("anchor_edge")
         cuts = info.get("cut_edges") or []
         boundary_edges = {self._norm_edge(e) for e in (info.get("boundary_edges") or [])}
-        self.flatten_panel.set_anchor_edge(anchor)
+        anchor_boundary = None
+        if anchor is not None:
+            anchor_boundary = self._norm_edge(anchor) in boundary_edges
+        self.flatten_panel.set_anchor_edge(
+            anchor,
+            label=None if anchor is None else self._edge_label_basic(anchor, boundary=anchor_boundary),
+        )
         self.flatten_panel.set_cut_edges(
             cuts,
             labels={

@@ -636,10 +636,18 @@ Changes:
 
 3. Added edge picking + seam visualization in `ThreeDViewportWidget`
    - New seam state signal: `seamStateChanged`.
-   - In Cut/Seam mode, LMB picks the nearest edge on the ray-hit triangle.
+   - In Cut/Seam mode, edge picking now follows SolidWorks-like behavior:
+     - hover near candidate edge highlights it,
+     - `Click` toggles relief cut,
+     - `Shift+Click` sets anchor edge.
+   - Candidate edge priority:
+     - selected faces -> patch boundary edges,
+     - no selected faces -> feature edges (dihedral threshold) with triangle-edge fallback.
    - Overlay rendering:
+     - hovered edge = cyan
      - anchor edge = green line
      - cut edges = red lines
+   - Overlay rendering gracefully degrades if GL line overlay objects are unavailable; seam state logic still updates.
 
 4. Added topology cutting utility module
    - `qt_app/mesh_cutting.py` provides:
@@ -660,7 +668,8 @@ Changes:
 
 Current status / limitation observed in runtime:
 
-- Left-panel seam workflow is now structurally in place, but the edge picking behavior is still pre-polish (next pass adds SolidWorks-like hover-near-edge + Shift/Click semantics).
+- The PropertyManager-like panel and hover/click seam picking are in place.
+- Remaining work is visual rhythm/polish (spacing, typography, and panel density tuning against reference screenshots).
 
 ## How the 3D Viewport Currently Works
 
@@ -754,13 +763,12 @@ Key rendering flow:
    - Some controls (e.g., seam slider / quality gauge / export-path label) remain instantiated but hidden to preserve legacy callback/state paths.
    - This is deliberate during stabilization and should be cleaned once runtime behavior is confirmed.
 
-15. Seam/Cut controls are currently dense in the row-2 command bar.
-   - The added `Cut/Seam`, `Set Anchor`, `Add/Remove Cut`, `Clear Cuts`, and seam status text are functional but visually crowded.
-   - Discoverability and interaction clarity are not yet at CAD-grade quality; this requires a dedicated UX/layout pass.
+15. Seam/Cut workflow is split across row mode controls + left panel controls.
+   - This is intentional (mode on row, actions in panel), but still needs screenshot-driven spacing/section hierarchy polish to look closer to SolidWorks PropertyManager.
 
-16. Seam edge picking has minimal affordance feedback.
-   - The active edge is tracked internally and cut/anchor overlays render, but the current command flow still depends on users understanding mode + button order.
-   - A follow-up should improve guided state feedback and command grouping.
+16. Edge candidate rules are heuristic when no faces are selected.
+   - Feature-edge based picking uses a fixed dihedral threshold and falls back to triangle-edge picking for heavy candidate sets.
+   - This is robust, but complex meshes may still require user face selection for best predictability.
 
 ## Validation Performed
 
@@ -768,6 +776,10 @@ Key rendering flow:
   - `python -m py_compile qt_app/ribbon_window.py`
   - `python -m py_compile qt_app/viewport.py`
   - `python -m py_compile qt_app/mesh_cutting.py`
+  - `python -m py_compile qt_app/flatten_panel.py`
+  - `python -m py_compile qt_app/edge_selection.py`
+  - `python -m py_compile tests/test_edge_selection.py`
+  - `python -m pytest tests/test_edge_selection.py -q` (not executable in this environment: `pytest` missing)
 - PHASE 2 step-gate syntax checks:
   - `python -m py_compile qt_app/unified_command_bar.py`
   - `python -m py_compile qt_app/ribbon_window.py`

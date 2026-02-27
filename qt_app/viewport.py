@@ -1518,6 +1518,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
     def auto_guess_anchor_edge(self) -> Tuple[int, int] | None:
         if self.vertices is None or self.pick_faces is None:
             return None
+        if not self.selected_faces:
+            return None
         self._recompute_seam_candidates()
         candidates = sorted(self._seam_boundary_edge_set) if self._seam_boundary_edge_set else sorted(set(self._seam_candidate_edges))
         if not candidates:
