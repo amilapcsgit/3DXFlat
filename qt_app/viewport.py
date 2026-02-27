@@ -12,6 +12,7 @@ from PySide6.QtCore import QEasingCurve, QPoint, QPointF, QSize, QTimer, QVarian
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QRadialGradient, QVector3D, QVector4D, QRegion
 from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QLabel, QMenu, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 import trimesh
+from qt_app import edge_selection
 from ui.icon_loader import IconRegistry, load_icon_svg_file
 from ui.theme import tokens
 
@@ -300,8 +301,17 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._isolate_mode = False
         self._isolated_pick_indices: Set[int] = set()
         self._active_edge_pick: Tuple[int, int] | None = None
+        self._hover_edge: Tuple[int, int] | None = None
         self.anchor_edge: Tuple[int, int] | None = None
         self.cut_edges: Set[Tuple[int, int]] = set()
+        self._seam_candidate_edges: List[Tuple[int, int]] = []
+        self._seam_boundary_edge_set: Set[Tuple[int, int]] = set()
+        self._seam_pick_strategy = "triangle"
+        self._seam_pick_px_tol = 10.0
+        self._seam_feature_angle_deg = 42.0
+        self._seam_screen_pick_edge_cap = 24000
+        self._feature_edge_cache_token: Tuple[int, int, float] | None = None
+        self._feature_edges_global: List[Tuple[int, int]] = []
 
         self._drag_start: Tuple[float, float] | None = None
         self._left_dragging = False
@@ -394,29 +404,49 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.selection_item.setVisible(False)
         self.addItem(self.selection_item)
 
-        self.anchor_edge_item = gl.GLLinePlotItem(
-            pos=np.empty((0, 3), dtype=np.float32),
-            color=(0.12, 0.86, 0.26, 0.95),
-            width=3.0,
-            antialias=True,
-            mode="lines",
-        )
-        self.anchor_edge_item.setGLOptions("translucent")
-        self.anchor_edge_item.setDepthValue(3)
-        self.anchor_edge_item.setVisible(False)
-        self.addItem(self.anchor_edge_item)
+        self.hover_edge_item = None
+        self.anchor_edge_item = None
+        self.cut_edges_item = None
+        try:
+            self.hover_edge_item = gl.GLLinePlotItem(
+                pos=np.empty((0, 3), dtype=np.float32),
+                color=(0.16, 0.80, 0.95, 0.98),
+                width=4.0,
+                antialias=True,
+                mode="lines",
+            )
+            self.hover_edge_item.setGLOptions("translucent")
+            self.hover_edge_item.setDepthValue(3)
+            self.hover_edge_item.setVisible(False)
+            self.addItem(self.hover_edge_item)
 
-        self.cut_edges_item = gl.GLLinePlotItem(
-            pos=np.empty((0, 3), dtype=np.float32),
-            color=(0.93, 0.18, 0.14, 0.95),
-            width=2.5,
-            antialias=True,
-            mode="lines",
-        )
-        self.cut_edges_item.setGLOptions("translucent")
-        self.cut_edges_item.setDepthValue(3)
-        self.cut_edges_item.setVisible(False)
-        self.addItem(self.cut_edges_item)
+            self.anchor_edge_item = gl.GLLinePlotItem(
+                pos=np.empty((0, 3), dtype=np.float32),
+                color=(0.12, 0.86, 0.26, 0.95),
+                width=3.0,
+                antialias=True,
+                mode="lines",
+            )
+            self.anchor_edge_item.setGLOptions("translucent")
+            self.anchor_edge_item.setDepthValue(3)
+            self.anchor_edge_item.setVisible(False)
+            self.addItem(self.anchor_edge_item)
+
+            self.cut_edges_item = gl.GLLinePlotItem(
+                pos=np.empty((0, 3), dtype=np.float32),
+                color=(0.93, 0.18, 0.14, 0.95),
+                width=2.5,
+                antialias=True,
+                mode="lines",
+            )
+            self.cut_edges_item.setGLOptions("translucent")
+            self.cut_edges_item.setDepthValue(3)
+            self.cut_edges_item.setVisible(False)
+            self.addItem(self.cut_edges_item)
+        except Exception:
+            self.hover_edge_item = None
+            self.anchor_edge_item = None
+            self.cut_edges_item = None
 
         self.overlay = QLabel("Drop 3D Model Here\n(STL / OBJ / STEP)", self)
         self.overlay.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -525,7 +555,9 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         cx, cy, cz = map(float, self._mesh_center.tolist())
         yaw = float(self._model_yaw_deg)
         pitch = float(self._model_pitch_deg)
-        for item in (self.mesh_item, self.wire_item, self.selection_item, self.cut_edges_item, self.anchor_edge_item):
+        for item in (self.mesh_item, self.wire_item, self.selection_item, self.hover_edge_item, self.cut_edges_item, self.anchor_edge_item):
+            if item is None:
+                continue
             try:
                 item.resetTransform()
                 if abs(yaw) < 1e-9 and abs(pitch) < 1e-9:
@@ -758,7 +790,10 @@ class ThreeDViewportWidget(gl.GLViewWidget):
 
         # Free hover feedback when no buttons are pressed.
         if event.buttons() == Qt.MouseButton.NoButton:
-            self._schedule_hover_pick(cur[0], cur[1])
+            if self.selection_mode == "cut":
+                self._update_hovered_edge(cur[0], cur[1])
+            else:
+                self._schedule_hover_pick(cur[0], cur[1])
         super().mouseMoveEvent(event)
 
     def mouseDoubleClickEvent(self, event) -> None:  # noqa: N802
@@ -795,16 +830,28 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                     if self.vertices is None or self.pick_faces is None or self._left_dragging:
                         event.accept()
                         return
-                    hit = self._raycast_face_hit(float(event.position().x()), float(event.position().y()))
-                    if hit is None:
-                        self._active_edge_pick = None
-                        self._update_seam_overlays()
-                        self._emit_seam_state_changed()
+                    sx = float(event.position().x())
+                    sy = float(event.position().y())
+                    self._update_hovered_edge(sx, sy)
+                    edge = self._hover_edge
+                    if edge is None:
                         event.accept()
                         return
-                    face_id, hit_point = hit
-                    edge = self._nearest_edge_on_face(int(face_id), hit_point)
                     self._active_edge_pick = edge
+                    mods = event.modifiers()
+                    if bool(mods & Qt.KeyboardModifier.ShiftModifier):
+                        self.anchor_edge = self._normalized_edge(edge)
+                        if self.anchor_edge in self.cut_edges:
+                            self.cut_edges.discard(self.anchor_edge)
+                    else:
+                        normalized = self._normalized_edge(edge)
+                        if self.anchor_edge is not None and normalized == self.anchor_edge:
+                            event.accept()
+                            return
+                        if normalized in self.cut_edges:
+                            self.cut_edges.discard(normalized)
+                        else:
+                            self.cut_edges.add(normalized)
                     self._update_seam_overlays()
                     self._emit_seam_state_changed()
                     event.accept()
@@ -820,8 +867,10 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                 if hit is None:
                     if not ctrl and not alt:
                         self.selected_faces.clear()
+                        self._recompute_seam_candidates()
                         self._update_mesh_visuals()
                         self.facesSelected.emit(self.get_selected_faces())
+                        self._emit_seam_state_changed()
                     event.accept()
                     return
 
@@ -836,8 +885,10 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                 if self._isolate_mode and self._isolated_pick_indices:
                     self._isolated_pick_indices = set(self.selected_faces)
 
+                self._recompute_seam_candidates()
                 self._update_mesh_visuals()
                 self.facesSelected.emit(self.get_selected_faces())
+                self._emit_seam_state_changed()
                 event.accept()
                 return
             finally:
@@ -1171,8 +1222,14 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._isolate_mode = False
         self._isolated_pick_indices.clear()
         self._active_edge_pick = None
+        self._hover_edge = None
         self.anchor_edge = None
         self.cut_edges.clear()
+        self._seam_candidate_edges = []
+        self._seam_boundary_edge_set.clear()
+        self._seam_pick_strategy = "triangle"
+        self._feature_edge_cache_token = None
+        self._feature_edges_global = []
 
         self._face_normals = None
         self._face_adjacency = None
@@ -1208,10 +1265,11 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         )
         self.wire_item.opts["edgeColor"] = (*tokens.hex_to_rgbf(self._edge_color), 0.30)
         self.selection_item.setVisible(False)
-        self.anchor_edge_item.setData(pos=np.empty((0, 3), dtype=np.float32))
-        self.anchor_edge_item.setVisible(False)
-        self.cut_edges_item.setData(pos=np.empty((0, 3), dtype=np.float32))
-        self.cut_edges_item.setVisible(False)
+        for item in (self.hover_edge_item, self.anchor_edge_item, self.cut_edges_item):
+            if item is None:
+                continue
+            item.setData(pos=np.empty((0, 3), dtype=np.float32))
+            item.setVisible(False)
         self._reset_model_display_rotation()
 
         self.setCameraPosition(pos=QVector3D(0.0, 0.0, 0.0), distance=600.0, elevation=24.0, azimuth=-58.0)
@@ -1249,8 +1307,14 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._isolate_mode = False
         self._isolated_pick_indices.clear()
         self._active_edge_pick = None
+        self._hover_edge = None
         self.anchor_edge = None
         self.cut_edges.clear()
+        self._seam_candidate_edges = []
+        self._seam_boundary_edge_set.clear()
+        self._seam_pick_strategy = "triangle"
+        self._feature_edge_cache_token = None
+        self._feature_edges_global = []
         self._face_normals = None
         self._face_adjacency = None
         self._pick_cache_token = (len(self.vertices), len(self.pick_faces))
@@ -1267,6 +1331,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             self._base_render_face_colors = self._build_default_face_colors()
         self._build_pick_to_render_map()
         self._prepare_pick_raycast_cache()
+        self._recompute_seam_candidates()
         self._update_mesh_visuals()
         self._update_seam_overlays()
         self._reset_model_display_rotation()
@@ -1365,6 +1430,15 @@ class ThreeDViewportWidget(gl.GLViewWidget):
 
     def set_selection_mode(self, mode: str) -> None:
         self.selection_mode = mode
+        if self.selection_mode != "cut":
+            if self._hover_edge is not None:
+                self._hover_edge = None
+                self._update_seam_overlays()
+                self._emit_seam_state_changed()
+        else:
+            self._recompute_seam_candidates()
+            self._update_seam_overlays()
+            self._emit_seam_state_changed()
 
     def clear_selection(self) -> None:
         if not self.selected_faces:
@@ -1373,14 +1447,16 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         if self._isolate_mode:
             self._isolated_pick_indices.clear()
             self._isolate_mode = False
+        self._recompute_seam_candidates()
         self._update_mesh_visuals()
         self.facesSelected.emit([])
+        self._emit_seam_state_changed()
 
     def invert_selection(self) -> None:
         self._invert_selection()
 
     def get_active_edge_pick(self) -> Tuple[int, int] | None:
-        return self._active_edge_pick
+        return self._hover_edge if self._hover_edge is not None else self._active_edge_pick
 
     def get_anchor_edge(self) -> Tuple[int, int] | None:
         return self.anchor_edge
@@ -1389,9 +1465,11 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         return sorted(self.cut_edges)
 
     def set_anchor_from_active_edge(self) -> Tuple[int, int] | None:
-        if self._active_edge_pick is None:
+        edge_for_action = self._edge_for_actions()
+        if edge_for_action is None:
             return None
-        self.anchor_edge = self._normalized_edge(self._active_edge_pick)
+        self.anchor_edge = self._normalized_edge(edge_for_action)
+        self._active_edge_pick = self.anchor_edge
         if self.anchor_edge in self.cut_edges:
             self.cut_edges.discard(self.anchor_edge)
         self._update_seam_overlays()
@@ -1399,9 +1477,11 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         return self.anchor_edge
 
     def toggle_cut_from_active_edge(self) -> Tuple[str, Tuple[int, int]] | None:
-        if self._active_edge_pick is None:
+        edge_for_action = self._edge_for_actions()
+        if edge_for_action is None:
             return None
-        edge = self._normalized_edge(self._active_edge_pick)
+        edge = self._normalized_edge(edge_for_action)
+        self._active_edge_pick = edge
         if self.anchor_edge is not None and edge == self.anchor_edge:
             return ("anchor_conflict", edge)
         if edge in self.cut_edges:
@@ -1438,23 +1518,14 @@ class ThreeDViewportWidget(gl.GLViewWidget):
     def auto_guess_anchor_edge(self) -> Tuple[int, int] | None:
         if self.vertices is None or self.pick_faces is None:
             return None
-        selected = self.get_selected_faces()
-        if not selected:
+        self._recompute_seam_candidates()
+        candidates = sorted(self._seam_boundary_edge_set) if self._seam_boundary_edge_set else sorted(set(self._seam_candidate_edges))
+        if not candidates:
             return None
-        idx = np.asarray(selected, dtype=np.int64)
-        idx = idx[(idx >= 0) & (idx < len(self.pick_faces))]
-        if len(idx) == 0:
-            return None
-        faces = np.asarray(self.pick_faces[idx], dtype=np.int64)
-        edges = np.vstack((faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]))
-        edges = np.sort(edges, axis=1)
-        uniq, counts = np.unique(edges, axis=0, return_counts=True)
-        boundary = uniq[counts == 1]
-        if len(boundary) == 0:
-            return None
-        lengths = np.linalg.norm(self.vertices[boundary[:, 0]] - self.vertices[boundary[:, 1]], axis=1)
+        arr = np.asarray(candidates, dtype=np.int64)
+        lengths = np.linalg.norm(self.vertices[arr[:, 0]] - self.vertices[arr[:, 1]], axis=1)
         best_idx = int(np.argmax(lengths))
-        best = self._normalized_edge(boundary[best_idx])
+        best = self._normalized_edge(arr[best_idx])
         self.anchor_edge = best
         if best in self.cut_edges:
             self.cut_edges.discard(best)
@@ -1513,8 +1584,11 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.seamStateChanged.emit(
             {
                 "active_edge": None if self._active_edge_pick is None else tuple(self._active_edge_pick),
+                "hover_edge": None if self._hover_edge is None else tuple(self._hover_edge),
                 "anchor_edge": None if self.anchor_edge is None else tuple(self.anchor_edge),
                 "cut_edges": [tuple(e) for e in sorted(self.cut_edges)],
+                "boundary_edges": [tuple(e) for e in sorted(self._seam_boundary_edge_set)],
+                "pick_strategy": self._seam_pick_strategy,
             }
         )
 
@@ -1576,8 +1650,10 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.selected_faces = all_faces.difference(self.selected_faces)
         if self._isolate_mode:
             self._isolated_pick_indices = set(self.selected_faces)
+        self._recompute_seam_candidates()
         self._update_mesh_visuals()
         self.facesSelected.emit(self.get_selected_faces())
+        self._emit_seam_state_changed()
 
     def _toggle_isolate(self) -> None:
         self.set_isolate_mode(not self._isolate_mode)
@@ -1968,20 +2044,163 @@ class ThreeDViewportWidget(gl.GLViewWidget):
 
     def _update_seam_overlays(self) -> None:
         if self.vertices32 is None:
-            self.anchor_edge_item.setData(pos=np.empty((0, 3), dtype=np.float32))
-            self.anchor_edge_item.setVisible(False)
-            self.cut_edges_item.setData(pos=np.empty((0, 3), dtype=np.float32))
-            self.cut_edges_item.setVisible(False)
+            for item in (self.hover_edge_item, self.anchor_edge_item, self.cut_edges_item):
+                if item is None:
+                    continue
+                item.setData(pos=np.empty((0, 3), dtype=np.float32))
+                item.setVisible(False)
             return
 
+        hover_pos = self._edge_segments_positions([self._hover_edge] if self._hover_edge is not None else [])
         anchor_pos = self._edge_segments_positions([self.anchor_edge] if self.anchor_edge is not None else [])
         cut_pos = self._edge_segments_positions(sorted(self.cut_edges))
 
-        self.anchor_edge_item.setData(pos=anchor_pos, color=(0.12, 0.86, 0.26, 0.95))
-        self.anchor_edge_item.setVisible(len(anchor_pos) >= 2)
-        self.cut_edges_item.setData(pos=cut_pos, color=(0.93, 0.18, 0.14, 0.95))
-        self.cut_edges_item.setVisible(len(cut_pos) >= 2)
+        if self.hover_edge_item is not None:
+            self.hover_edge_item.setData(pos=hover_pos, color=(0.16, 0.80, 0.95, 0.98))
+            self.hover_edge_item.setVisible(len(hover_pos) >= 2)
+        if self.anchor_edge_item is not None:
+            self.anchor_edge_item.setData(pos=anchor_pos, color=(0.12, 0.86, 0.26, 0.95))
+            self.anchor_edge_item.setVisible(len(anchor_pos) >= 2)
+        if self.cut_edges_item is not None:
+            self.cut_edges_item.setData(pos=cut_pos, color=(0.93, 0.18, 0.14, 0.95))
+            self.cut_edges_item.setVisible(len(cut_pos) >= 2)
         self._apply_model_display_transform()
+
+    def _edge_for_actions(self) -> Tuple[int, int] | None:
+        if self._hover_edge is not None:
+            return self._normalized_edge(self._hover_edge)
+        if self._active_edge_pick is not None:
+            return self._normalized_edge(self._active_edge_pick)
+        return None
+
+    def _display_vertices_for_projection(self) -> np.ndarray:
+        if self.vertices is None:
+            return np.empty((0, 3), dtype=np.float64)
+        verts = np.asarray(self.vertices, dtype=np.float64)
+        if not self._model_turntable_enabled:
+            return verts
+        if abs(self._model_yaw_deg) < 1e-9 and abs(self._model_pitch_deg) < 1e-9:
+            return verts
+        center = self._mesh_center.astype(np.float64, copy=False)
+        rot = self._model_rotation_matrix()
+        return center + ((verts - center[None, :]) @ rot.T)
+
+    def _viewproj_matrix_np(self) -> np.ndarray | None:
+        try:
+            w = max(1, int(self.width()))
+            h = max(1, int(self.height()))
+            vp = self.projectionMatrix((0, 0, w, h), self.getViewport()) * self.viewMatrix()
+            # Qt returns column-major data.
+            return np.array(vp.data(), dtype=np.float64).reshape((4, 4), order="F")
+        except Exception:
+            return None
+
+    def _all_unique_mesh_edges(self) -> List[Tuple[int, int]]:
+        if self.pick_faces is None:
+            return []
+        faces = np.asarray(self.pick_faces, dtype=np.int64)
+        if len(faces) == 0:
+            return []
+        edges = np.vstack((faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]))
+        return sorted({self._normalized_edge(e) for e in edges})
+
+    def _feature_edges_cached(self) -> List[Tuple[int, int]]:
+        if self.pick_faces is None or self.vertices is None:
+            return []
+        token = (int(len(self.vertices)), int(len(self.pick_faces)), float(self._seam_feature_angle_deg))
+        if self._feature_edge_cache_token == token:
+            return list(self._feature_edges_global)
+        try:
+            feature = edge_selection.compute_feature_edges(
+                np.asarray(self.pick_faces, dtype=np.int64),
+                np.asarray(self.vertices, dtype=np.float64),
+                self._seam_feature_angle_deg,
+            )
+        except Exception:
+            feature = []
+        self._feature_edge_cache_token = token
+        self._feature_edges_global = [self._normalized_edge(e) for e in feature]
+        return list(self._feature_edges_global)
+
+    def _recompute_seam_candidates(self) -> None:
+        self._seam_candidate_edges = []
+        self._seam_boundary_edge_set.clear()
+        self._seam_pick_strategy = "triangle"
+
+        if self.pick_faces is None or self.vertices is None:
+            self._hover_edge = None
+            return
+
+        selected = self.get_selected_faces()
+        if selected:
+            sub = edge_selection.build_selected_submesh(self.pick_faces, selected)
+            faces_sub = np.asarray(sub.get("faces_sub", np.empty((0, 3), dtype=np.int64)), dtype=np.int64)
+            vmap = np.asarray(sub.get("vertex_ids_global", np.empty((0,), dtype=np.int64)), dtype=np.int64)
+            boundary_local = edge_selection.compute_patch_boundary_edges(faces_sub)
+            boundary_global: List[Tuple[int, int]] = []
+            for a, b in boundary_local:
+                if a < 0 or b < 0 or a >= len(vmap) or b >= len(vmap):
+                    continue
+                boundary_global.append(self._normalized_edge((vmap[a], vmap[b])))
+            self._seam_boundary_edge_set = set(boundary_global)
+            self._seam_candidate_edges = sorted(self._seam_boundary_edge_set)
+            if self._seam_candidate_edges and len(self._seam_candidate_edges) <= self._seam_screen_pick_edge_cap:
+                self._seam_pick_strategy = "screen"
+            else:
+                self._seam_pick_strategy = "triangle"
+        else:
+            feature_edges = self._feature_edges_cached()
+            if feature_edges and len(feature_edges) <= self._seam_screen_pick_edge_cap:
+                self._seam_candidate_edges = sorted(set(feature_edges))
+                self._seam_pick_strategy = "screen"
+            else:
+                self._seam_candidate_edges = []
+                self._seam_pick_strategy = "triangle"
+
+        if self._hover_edge is not None:
+            if self._seam_candidate_edges and self._hover_edge not in set(self._seam_candidate_edges):
+                self._hover_edge = None
+            elif self.pick_faces is None:
+                self._hover_edge = None
+
+    def _update_hovered_edge(self, sx: float, sy: float) -> None:
+        if self.vertices is None or self.pick_faces is None:
+            return
+        prev = self._hover_edge
+        hovered = None
+
+        if self._seam_pick_strategy == "screen" and self._seam_candidate_edges:
+            viewproj = self._viewproj_matrix_np()
+            if viewproj is not None:
+                try:
+                    hovered = edge_selection.screen_space_pick_edge(
+                        mouse_xy=(sx, sy),
+                        edges=self._seam_candidate_edges,
+                        vertices=self._display_vertices_for_projection(),
+                        viewproj=viewproj,
+                        viewport_w=int(self.width()),
+                        viewport_h=int(self.height()),
+                        px_tol=self._seam_pick_px_tol,
+                    )
+                except Exception:
+                    hovered = None
+
+        if hovered is None:
+            hit = self._raycast_face_hit(sx, sy)
+            if hit is not None:
+                face_id, hit_point = hit
+                candidate = self._nearest_edge_on_face(int(face_id), hit_point)
+                if self._seam_boundary_edge_set and self.selected_faces and candidate not in self._seam_boundary_edge_set:
+                    hovered = None
+                else:
+                    hovered = candidate
+
+        self._hover_edge = None if hovered is None else self._normalized_edge(hovered)
+        if self._hover_edge is not None:
+            self._active_edge_pick = self._hover_edge
+        if prev != self._hover_edge:
+            self._update_seam_overlays()
+            self._emit_seam_state_changed()
 
     def _schedule_hover_pick(self, sx: float, sy: float) -> None:
         self._pending_hover_pos = (float(sx), float(sy))
@@ -1989,6 +2208,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             self._hover_timer.start()
 
     def _process_hover_pick(self) -> None:
+        if self.selection_mode == "cut":
+            return
         if self._pending_hover_pos is None or self.pick_faces is None:
             return
         sx, sy = self._pending_hover_pos

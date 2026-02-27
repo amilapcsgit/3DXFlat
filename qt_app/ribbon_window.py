@@ -970,13 +970,6 @@ class RibbonMainWindow(QMainWindow):
             self.isolate_btn.blockSignals(True)
             self.isolate_btn.setChecked(False)
             self.isolate_btn.blockSignals(False)
-        self._on_seam_state_changed(
-            {
-                "active_edge": self.viewport.get_active_edge_pick(),
-                "anchor_edge": self.viewport.get_anchor_edge(),
-                "cut_edges": self.viewport.get_cut_edges(),
-            }
-        )
 
     def _apply_selection_mode(self) -> None:
         if self.smart_select_btn.isChecked():
@@ -993,16 +986,26 @@ class RibbonMainWindow(QMainWindow):
 
     def _on_seam_state_changed(self, payload: Dict | object) -> None:
         info = payload if isinstance(payload, dict) else {}
-        active = info.get("active_edge")
+        active = info.get("hover_edge") or info.get("active_edge")
         anchor = info.get("anchor_edge")
         cuts = info.get("cut_edges") or []
+        boundary_edges = {self._norm_edge(e) for e in (info.get("boundary_edges") or [])}
         self.flatten_panel.set_anchor_edge(anchor)
-        self.flatten_panel.set_cut_edges(cuts, labels={self._norm_edge(edge): self._edge_label_basic(edge) for edge in cuts})
+        self.flatten_panel.set_cut_edges(
+            cuts,
+            labels={
+                self._norm_edge(edge): self._edge_label_basic(edge, boundary=(self._norm_edge(edge) in boundary_edges))
+                for edge in cuts
+            },
+        )
 
         active_txt = "-" if not active else f"v{int(active[0])}-v{int(active[1])}"
         patch_status = self._patch_state_text()
         anchor_status = "none" if not anchor else "set"
-        self.flatten_panel.set_status_line(f"Seam: A[{anchor_status}]  C[{len(cuts)}]  Patch: {patch_status}  Hover: {active_txt}")
+        strategy = str(info.get("pick_strategy", "-"))
+        self.flatten_panel.set_status_line(
+            f"Seam: A[{anchor_status}]  C[{len(cuts)}]  Patch: {patch_status}  Hover: {active_txt}  Pick:{strategy}"
+        )
 
     def _on_set_anchor_clicked(self) -> None:
         edge = self.viewport.set_anchor_from_active_edge()
@@ -1561,12 +1564,15 @@ class RibbonMainWindow(QMainWindow):
         scale = get_unit_scale(self.units_combo.currentText())
         return float(np.linalg.norm(self.loaded_vertices[a] - self.loaded_vertices[b]) * scale)
 
-    def _edge_label_basic(self, edge: Sequence[int]) -> str:
+    def _edge_label_basic(self, edge: Sequence[int], *, boundary: bool | None = None) -> str:
         a, b = self._norm_edge(edge)
         length = self._edge_length_mm((a, b))
+        btxt = ""
+        if boundary is not None:
+            btxt = " boundary=Y" if bool(boundary) else " boundary=N"
         if length is None:
-            return f"Edge: v{a}-v{b}"
-        return f"Edge: v{a}-v{b} (len={length:.1f} mm)"
+            return f"Edge: v{a}-v{b}{btxt}"
+        return f"Edge: v{a}-v{b} (len={length:.1f} mm{btxt})"
 
     def _patch_state_text(self) -> str:
         source_faces = self.viewport.pick_faces if self.viewport.pick_faces is not None else self.loaded_faces
