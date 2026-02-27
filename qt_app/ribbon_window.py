@@ -44,7 +44,7 @@ from shapely.geometry import MultiPolygon, Polygon
 from flatten_surface.flatten_surface import flatten_mesh
 from flatten_surface.import_export import _extract_open_patches_from_watertight, export_dxf, export_svg, get_unit_scale
 from nesting import build_nesting_layout, export_nesting_layout
-from qt_app.brep_import import is_brep_extension, is_occ_available
+from qt_app.brep_import import is_brep_extension, is_occ_available, load_brep
 from qt_app.flatten_panel import FlattenPanelWidget
 from qt_app import mesh_cutting
 from qt_app.mesh_io import load_mesh_file
@@ -85,6 +85,49 @@ class Worker(QObject):
         path = str(self.payload["path"])
         self.status.emit("Loading 3D model...")
         self.progress.emit(5)
+        ext = Path(path).suffix.lower()
+        if is_brep_extension(path):
+            self.status.emit("Loading CAD B-Rep...")
+            brep = load_brep(path)
+            self.progress.emit(40)
+            vertices = np.asarray(brep.tri_mesh_vertices, dtype=np.float64)
+            faces = np.asarray(brep.tri_mesh_faces, dtype=np.int64)
+            tri_face_id = np.asarray(brep.tri_face_id, dtype=np.int64)
+            if len(vertices) == 0 or len(faces) == 0:
+                raise ValueError("B-Rep tessellation produced no valid triangles.")
+
+            preview_faces = faces
+            preview_indices = np.arange(len(faces), dtype=np.int64)
+            if len(faces) > 120000:
+                step = int(math.ceil(len(faces) / 120000.0))
+                preview_faces = faces[::step]
+                preview_indices = preview_indices[::step]
+
+            self.progress.emit(70)
+            mesh_checks = self._compute_mesh_checks_from_triangles(vertices, faces)
+            self.progress.emit(100)
+            return {
+                "path": path,
+                "model_type": "brep",
+                "vertices": vertices,
+                "faces": faces,
+                "preview_faces": preview_faces,
+                "preview_indices": preview_indices,
+                "vertex_colors": None,
+                "preview_face_colors": None,
+                "mesh_checks": mesh_checks,
+                "brep": {
+                    "tri_face_id": tri_face_id,
+                    "preview_tri_face_id": tri_face_id[preview_indices] if len(tri_face_id) == len(faces) else None,
+                    "face_boundary_edge_ids": {int(k): [int(v) for v in vals] for k, vals in brep.face_boundary_edge_ids.items()},
+                    "edge_polylines": {int(k): np.asarray(v, dtype=np.float64) for k, v in brep.edge_polylines.items()},
+                    "face_count": int(len(brep.faces)),
+                    "edge_count": int(len(brep.edges)),
+                    "units": str(brep.units_label),
+                    "bbox": tuple(float(x) for x in brep.bbox),
+                },
+            }
+
         mesh = load_mesh_file(path)
         self.progress.emit(25)
         if isinstance(mesh, trimesh.Scene):
@@ -120,24 +163,50 @@ class Worker(QObject):
             vertex_colors = None
             preview_face_colors = None
 
-        edges_sorted = np.sort(mesh.edges_sorted, axis=1)
-        _, edge_use_counts = np.unique(edges_sorted, axis=0, return_counts=True)
-        open_edges = int(np.sum(edge_use_counts == 1))
-        non_manifold_edges = int(np.sum(edge_use_counts > 2))
-        degenerate = int(np.sum(mesh.area_faces <= 1e-12))
+        mesh_checks = self._compute_mesh_checks_from_triangles(vertices, faces, area_faces=getattr(mesh, "area_faces", None))
         self.progress.emit(100)
         return {
             "path": path,
+            "model_type": "mesh",
             "vertices": vertices,
             "faces": faces,
             "preview_faces": preview_faces,
+            "preview_indices": preview_indices,
             "vertex_colors": vertex_colors,
             "preview_face_colors": preview_face_colors,
-            "mesh_checks": {
-                "open_edges": open_edges,
-                "non_manifold_edges": non_manifold_edges,
-                "degenerate_faces": degenerate,
-            },
+            "mesh_checks": mesh_checks,
+            "brep": None,
+        }
+
+    @staticmethod
+    def _compute_mesh_checks_from_triangles(
+        vertices: np.ndarray,
+        faces: np.ndarray,
+        *,
+        area_faces: np.ndarray | None = None,
+    ) -> Dict[str, int]:
+        faces = np.asarray(faces, dtype=np.int64)
+        if faces.ndim != 2 or faces.shape[1] != 3 or len(faces) == 0:
+            return {"open_edges": 0, "non_manifold_edges": 0, "degenerate_faces": 0}
+
+        edges = np.vstack((faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]))
+        edges = np.sort(edges, axis=1)
+        _, edge_use_counts = np.unique(edges, axis=0, return_counts=True)
+        open_edges = int(np.sum(edge_use_counts == 1))
+        non_manifold_edges = int(np.sum(edge_use_counts > 2))
+
+        if area_faces is not None:
+            area_arr = np.asarray(area_faces, dtype=np.float64)
+            degenerate = int(np.sum(area_arr <= 1e-12))
+        else:
+            v = np.asarray(vertices, dtype=np.float64)
+            tri = v[faces]
+            area = 0.5 * np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1)
+            degenerate = int(np.sum(area <= 1e-12))
+        return {
+            "open_edges": open_edges,
+            "non_manifold_edges": non_manifold_edges,
+            "degenerate_faces": degenerate,
         }
 
     def _run_flatten(self) -> Dict:
@@ -627,9 +696,11 @@ class RibbonMainWindow(QMainWindow):
         self._seam_debounce.timeout.connect(self._apply_seam_to_preview)
 
         self.loaded_model_path: str | None = None
+        self.loaded_model_type: str = "mesh"
         self.loaded_vertices: np.ndarray | None = None
         self.loaded_faces: np.ndarray | None = None
         self.loaded_preview_faces: np.ndarray | None = None
+        self.loaded_brep: Dict | None = None
         self.loaded_mesh_checks: Dict | None = None
         self.flatten_completed = False
         self.last_export_path: str = str(self._settings.value("last_export_path", ""))
@@ -1371,10 +1442,16 @@ class RibbonMainWindow(QMainWindow):
         preview_faces = np.asarray(payload["preview_faces"], dtype=np.int64)
         vertex_colors = payload.get("vertex_colors")
         preview_face_colors = payload.get("preview_face_colors")
+        model_type = str(payload.get("model_type", "mesh")).strip().lower()
+        if model_type not in {"mesh", "brep"}:
+            model_type = "mesh"
+        brep_meta = payload.get("brep") if model_type == "brep" else None
         self.loaded_model_path = path
+        self.loaded_model_type = model_type
         self.loaded_vertices = vertices
         self.loaded_faces = faces
         self.loaded_preview_faces = preview_faces
+        self.loaded_brep = brep_meta if isinstance(brep_meta, dict) else None
         self.loaded_mesh_checks = dict(payload.get("mesh_checks", {}))
 
         dims = self._dims_in_mm(vertices)
@@ -1386,6 +1463,7 @@ class RibbonMainWindow(QMainWindow):
             pick_faces=faces,
             vertex_colors=None if vertex_colors is None else np.asarray(vertex_colors),
             face_colors=None if preview_face_colors is None else np.asarray(preview_face_colors),
+            brep_metadata=self.loaded_brep,
         )
         self._position_viewcube()
         self._on_viewport_camera_changed(24.0, -58.0)
@@ -1408,13 +1486,29 @@ class RibbonMainWindow(QMainWindow):
         self.flatten_panel.set_status_line("Seam: A[none]  C[0]  Patch: -")
         self._update_workflow_enablement()
         self._update_status_metadata()
-        self.log(f"INFO | Model loaded: {Path(path).name} ({len(vertices)} verts, {len(faces)} faces)")
+        if self.loaded_model_type == "brep" and self.loaded_brep:
+            face_count = int(self.loaded_brep.get("face_count", 0))
+            edge_count = int(self.loaded_brep.get("edge_count", 0))
+            self.log(
+                f"INFO | CAD model loaded: {Path(path).name} "
+                f"(BRep faces={face_count}, BRep edges={edge_count}, tris={len(faces)})"
+            )
+        else:
+            self.log(f"INFO | Model loaded: {Path(path).name} ({len(vertices)} verts, {len(faces)} faces)")
 
     def _flatten_faces_payload(self) -> np.ndarray | None:
         source_faces = self.viewport.pick_faces if self.viewport.pick_faces is not None else self.loaded_faces
         if source_faces is None:
             return None
         selected = self.viewport.get_selected_faces()
+        if self.loaded_model_type == "brep" and self.loaded_brep is not None:
+            tri_face_id = np.asarray(self.loaded_brep.get("tri_face_id", np.empty((0,), dtype=np.int64)), dtype=np.int64)
+            if len(tri_face_id) == len(source_faces) and selected:
+                sel = np.asarray(sorted({int(x) for x in selected}), dtype=np.int64)
+                tri_idx = np.nonzero(np.isin(tri_face_id, sel))[0]
+                if len(tri_idx) == 0:
+                    return np.empty((0, 3), dtype=np.int64)
+                return np.asarray(source_faces[tri_idx], dtype=np.int64)
         if selected:
             idx = np.asarray(selected, dtype=np.int64)
             if np.any(idx < 0) or np.any(idx >= len(source_faces)):

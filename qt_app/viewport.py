@@ -294,6 +294,10 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.render_faces32: np.ndarray | None = None
         self.pick_faces: np.ndarray | None = None
         self.mesh_name = ""
+        self.model_type = "mesh"
+        self._brep_tri_face_id: np.ndarray | None = None
+        self._brep_face_boundary_edge_ids: Dict[int, List[int]] = {}
+        self._brep_edge_polylines: Dict[int, np.ndarray] = {}
 
         self.selection_mode = "single"
         self.selected_faces: Set[int] = set()
@@ -1212,6 +1216,10 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         return (verts.min(axis=0) + verts.max(axis=0)) * 0.5
 
     def clear_view(self) -> None:
+        self.model_type = "mesh"
+        self._brep_tri_face_id = None
+        self._brep_face_boundary_edge_ids = {}
+        self._brep_edge_polylines = {}
         self.vertices = None
         self.vertices32 = None
         self.render_faces = None
@@ -1292,8 +1300,25 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         pick_faces: np.ndarray | None = None,
         vertex_colors: np.ndarray | None = None,
         face_colors: np.ndarray | None = None,
+        brep_metadata: Dict | None = None,
     ) -> None:
         self.mesh_name = name
+        self.model_type = "brep" if isinstance(brep_metadata, dict) and brep_metadata else "mesh"
+        self._brep_tri_face_id = None
+        self._brep_face_boundary_edge_ids = {}
+        self._brep_edge_polylines = {}
+        if self.model_type == "brep":
+            tri_face = np.asarray(brep_metadata.get("tri_face_id", np.empty((0,), dtype=np.int64)), dtype=np.int64)
+            if tri_face.ndim == 1:
+                self._brep_tri_face_id = tri_face
+            self._brep_face_boundary_edge_ids = {
+                int(k): [int(x) for x in (vals or [])]
+                for k, vals in dict(brep_metadata.get("face_boundary_edge_ids", {})).items()
+            }
+            self._brep_edge_polylines = {
+                int(k): np.asarray(v, dtype=np.float64)
+                for k, v in dict(brep_metadata.get("edge_polylines", {})).items()
+            }
         self.vertices = np.asarray(vertices, dtype=np.float64)
         self._mesh_center = self._bbox_center(self.vertices)
         self.vertices32 = np.ascontiguousarray(self.vertices.astype(np.float32, copy=False))
