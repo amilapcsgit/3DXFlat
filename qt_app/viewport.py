@@ -878,7 +878,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                     event.accept()
                     return
 
-                new_faces = {int(hit)} if self.selection_mode == "single" else self.smart_select(int(hit), 30.0)
+                new_faces = self._selection_units_from_pick_hit(int(hit))
                 if alt:
                     self.selected_faces.difference_update(new_faces)
                 elif ctrl:
@@ -887,7 +887,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                     self.selected_faces = set(new_faces)
 
                 if self._isolate_mode and self._isolated_pick_indices:
-                    self._isolated_pick_indices = set(self.selected_faces)
+                    self._isolated_pick_indices = set(self._selected_pick_face_indices().tolist())
 
                 self._recompute_seam_candidates()
                 self._update_mesh_visuals()
@@ -928,7 +928,14 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             urls = event.mimeData().urls()
             if urls:
                 p = urls[0].toLocalFile().lower()
-                if p.endswith(".stl") or p.endswith(".obj") or p.endswith(".stp") or p.endswith(".step"):
+                if (
+                    p.endswith(".stl")
+                    or p.endswith(".obj")
+                    or p.endswith(".stp")
+                    or p.endswith(".step")
+                    or p.endswith(".iges")
+                    or p.endswith(".igs")
+                ):
                     event.acceptProposedAction()
                     return
         event.ignore()
@@ -1568,7 +1575,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                 self._isolated_pick_indices.clear()
             else:
                 self._isolate_mode = True
-                self._isolated_pick_indices = set(self.selected_faces)
+                self._isolated_pick_indices = set(self._selected_pick_face_indices().tolist())
         else:
             self._isolate_mode = False
             self._isolated_pick_indices.clear()
@@ -1603,6 +1610,50 @@ class ThreeDViewportWidget(gl.GLViewWidget):
     def get_selected_faces(self) -> List[int]:
         return sorted(self.selected_faces)
 
+    def _brep_selection_enabled(self) -> bool:
+        return (
+            self.model_type == "brep"
+            and self.pick_faces is not None
+            and self._brep_tri_face_id is not None
+            and len(self._brep_tri_face_id) == len(self.pick_faces)
+        )
+
+    def _selected_pick_face_indices(self) -> np.ndarray:
+        if self.pick_faces is None or not self.selected_faces:
+            return np.empty((0,), dtype=np.int64)
+        if self._brep_selection_enabled():
+            selected_ids = np.asarray(sorted(self.selected_faces), dtype=np.int64)
+            return np.nonzero(np.isin(self._brep_tri_face_id, selected_ids))[0].astype(np.int64, copy=False)
+        idx = np.asarray(sorted(self.selected_faces), dtype=np.int64)
+        return idx[(idx >= 0) & (idx < len(self.pick_faces))]
+
+    def _selection_units_from_pick_hit(self, hit: int) -> Set[int]:
+        if self._brep_selection_enabled():
+            face_id = int(self._brep_tri_face_id[int(hit)])
+            return {face_id} if face_id >= 0 else set()
+        if self.selection_mode == "single":
+            return {int(hit)}
+        return self.smart_select(int(hit), 30.0)
+
+    def _selected_units_all(self) -> Set[int]:
+        if self.pick_faces is None:
+            return set()
+        if self._brep_selection_enabled():
+            ids = np.asarray(self._brep_tri_face_id, dtype=np.int64)
+            ids = ids[ids >= 0]
+            return set(int(x) for x in np.unique(ids).tolist())
+        return set(range(len(self.pick_faces)))
+
+    def _is_pick_face_selected(self, pick_face_index: int) -> bool:
+        idx = int(pick_face_index)
+        if idx < 0:
+            return False
+        if self._brep_selection_enabled():
+            if idx >= len(self._brep_tri_face_id):
+                return False
+            return int(self._brep_tri_face_id[idx]) in self.selected_faces
+        return idx in self.selected_faces
+
     def _on_camera_event(self) -> None:
         self._camera_debounce.start()
         self._update_floating_orbit_button_position()
@@ -1634,8 +1685,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         if self.vertices is None:
             return
         if self.selected_faces and self.pick_faces is not None:
-            idx = np.asarray(sorted(self.selected_faces), dtype=np.int64)
-            idx = idx[(idx >= 0) & (idx < len(self.pick_faces))]
+            idx = self._selected_pick_face_indices()
             if len(idx):
                 used_vertices = np.unique(self.pick_faces[idx].reshape(-1))
                 verts = self.vertices[used_vertices]
@@ -1673,10 +1723,10 @@ class ThreeDViewportWidget(gl.GLViewWidget):
     def _invert_selection(self) -> None:
         if self.pick_faces is None:
             return
-        all_faces = set(range(len(self.pick_faces)))
+        all_faces = self._selected_units_all()
         self.selected_faces = all_faces.difference(self.selected_faces)
         if self._isolate_mode:
-            self._isolated_pick_indices = set(self.selected_faces)
+            self._isolated_pick_indices = set(self._selected_pick_face_indices().tolist())
         self._recompute_seam_candidates()
         self._update_mesh_visuals()
         self.facesSelected.emit(self.get_selected_faces())
@@ -1986,12 +2036,11 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         if self._hover_face is not None and self._pick_to_render is not None:
             if 0 <= self._hover_face < len(self._pick_to_render):
                 ridx_hover = int(self._pick_to_render[self._hover_face])
-                if ridx_hover >= 0 and self._hover_face not in self.selected_faces:
+                if ridx_hover >= 0 and not self._is_pick_face_selected(self._hover_face):
                     colors[ridx_hover] = np.array([self._accent_rgb[0], self._accent_rgb[1], self._accent_rgb[2], 0.55], dtype=np.float32)
 
         if self._pick_to_render is not None and self.selected_faces:
-            idx = np.asarray(sorted(self.selected_faces), dtype=np.int64)
-            idx = idx[(idx >= 0) & (idx < len(self._pick_to_render))]
+            idx = self._selected_pick_face_indices()
             ridx = self._pick_to_render[idx]
             ridx = ridx[ridx >= 0]
             if len(ridx):
@@ -2029,8 +2078,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._apply_model_display_transform()
 
         if self.selected_faces and self.pick_faces is not None and self.vertices32 is not None:
-            idx = np.asarray(sorted(self.selected_faces), dtype=np.int64)
-            idx = idx[(idx >= 0) & (idx < len(self.pick_faces))]
+            idx = self._selected_pick_face_indices()
             if len(idx):
                 sel_faces = np.ascontiguousarray(self.pick_faces[idx].astype(np.int32, copy=False))
                 sel_colors = np.tile(
@@ -2158,9 +2206,9 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             self._hover_edge = None
             return
 
-        selected = self.get_selected_faces()
-        if selected:
-            sub = edge_selection.build_selected_submesh(self.pick_faces, selected)
+        selected_pick_idx = self._selected_pick_face_indices()
+        if len(selected_pick_idx):
+            sub = edge_selection.build_selected_submesh(self.pick_faces, selected_pick_idx)
             faces_sub = np.asarray(sub.get("faces_sub", np.empty((0, 3), dtype=np.int64)), dtype=np.int64)
             vmap = np.asarray(sub.get("vertex_ids_global", np.empty((0,), dtype=np.int64)), dtype=np.int64)
             boundary_local = edge_selection.compute_patch_boundary_edges(faces_sub)
@@ -2217,7 +2265,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             if hit is not None:
                 face_id, hit_point = hit
                 candidate = self._nearest_edge_on_face(int(face_id), hit_point)
-                if self._seam_boundary_edge_set and self.selected_faces and candidate not in self._seam_boundary_edge_set:
+                selected_pick_idx = self._selected_pick_face_indices()
+                if self._seam_boundary_edge_set and len(selected_pick_idx) > 0 and candidate not in self._seam_boundary_edge_set:
                     hovered = None
                 else:
                     hovered = candidate

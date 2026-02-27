@@ -85,7 +85,6 @@ class Worker(QObject):
         path = str(self.payload["path"])
         self.status.emit("Loading 3D model...")
         self.progress.emit(5)
-        ext = Path(path).suffix.lower()
         if is_brep_extension(path):
             self.status.emit("Loading CAD B-Rep...")
             brep = load_brep(path)
@@ -1037,7 +1036,10 @@ class RibbonMainWindow(QMainWindow):
     def _on_faces_selected(self, faces: List[int]) -> None:
         self.selected_label.setText(f"Selected: {len(faces)}")
         self.flatten_panel.set_faces_count(len(faces))
-        self.log(f"INFO | Surface selection updated: {len(faces)} face(s)")
+        if self.loaded_model_type == "brep":
+            self.log(f"INFO | CAD face selection updated: {len(faces)} face(s)")
+        else:
+            self.log(f"INFO | Surface selection updated: {len(faces)} face(s)")
         if hasattr(self, "isolate_btn") and not faces and self.isolate_btn.isChecked():
             self.isolate_btn.blockSignals(True)
             self.isolate_btn.setChecked(False)
@@ -1712,7 +1714,17 @@ class RibbonMainWindow(QMainWindow):
         if source_faces is None or len(source_faces) == 0:
             return "-"
         selected = self.viewport.get_selected_faces()
-        if selected:
+        if selected and self.loaded_model_type == "brep" and self.loaded_brep is not None:
+            tri_face_id = np.asarray(self.loaded_brep.get("tri_face_id", np.empty((0,), dtype=np.int64)), dtype=np.int64)
+            if len(tri_face_id) == len(source_faces):
+                sel = np.asarray(sorted({int(x) for x in selected}), dtype=np.int64)
+                tri_idx = np.nonzero(np.isin(tri_face_id, sel))[0]
+                if len(tri_idx) == 0:
+                    return "-"
+                faces = np.asarray(source_faces[tri_idx], dtype=np.int64)
+            else:
+                faces = np.asarray(source_faces, dtype=np.int64)
+        elif selected:
             idx = np.asarray(selected, dtype=np.int64)
             idx = idx[(idx >= 0) & (idx < len(source_faces))]
             if len(idx) == 0:
