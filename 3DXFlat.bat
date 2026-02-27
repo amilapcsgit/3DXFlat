@@ -50,6 +50,7 @@ set "PIP_CACHE_DIR=%LOCAL_BASE%\pip-cache"
 set "TMP=%LOCAL_BASE%\tmp"
 set "TEMP=%LOCAL_BASE%\tmp"
 set "TMPDIR=%LOCAL_BASE%\tmp"
+set "OPTIONAL_BREP_REQ=requirements-optional-brep.txt"
 if not exist "%LOCAL_BASE%" mkdir "%LOCAL_BASE%"
 if not exist "%PIP_CACHE_DIR%" mkdir "%PIP_CACHE_DIR%"
 if not exist "%TMP%" mkdir "%TMP%"
@@ -192,6 +193,39 @@ if "%NEED_INSTALL%"=="1" (
   >"%REQ_HASH_FILE%" echo %REQ_HASH%
 )
 
+if exist "%OPTIONAL_BREP_REQ%" (
+  set "BREP_IMPORT_OK=0"
+  call :check_occ "%VENV_PY%"
+  if "!BREP_IMPORT_OK!"=="1" (
+    echo [4.1/5] Optional B-Rep dependency present (pythonocc-core).
+  ) else (
+    echo [4.1/5] Installing optional B-Rep dependency (pythonocc-core)...
+    call :log "CMD START: \"%VENV_PY%\" -m pip install -r %OPTIONAL_BREP_REQ%"
+    "%VENV_PY%" -m pip install -r "%OPTIONAL_BREP_REQ%" >>"%RUNTIME_LOG%" 2>&1
+    set "RC=!ERRORLEVEL!"
+    call :log "CMD END rc=!RC!"
+    if not "!RC!"=="0" (
+      call :log "WARN: Optional B-Rep dependency install failed."
+      echo WARNING: Failed to install optional B-Rep dependency.
+      echo          STEP/IGES import may be unavailable.
+      echo          See runtime log: %RUNTIME_LOG%
+    ) else (
+      set "BREP_IMPORT_OK=0"
+      call :check_occ "%VENV_PY%"
+      if "!BREP_IMPORT_OK!"=="1" (
+        echo       pythonocc-core installed successfully.
+      ) else (
+        call :log "WARN: pythonocc-core install completed but OCC import still fails."
+        echo WARNING: pythonocc-core install completed, but OCC import check still fails.
+        echo          STEP/IGES import may be unavailable.
+        echo          See runtime log: %RUNTIME_LOG%
+      )
+    )
+  )
+) else (
+  call :log "INFO: %OPTIONAL_BREP_REQ% not found. Skipping optional B-Rep install."
+)
+
 echo [5/5] Running 3DXFlat...
 call :log "[5/5] Running main.py (Qt preferred, Tk fallback allowed)..."
 set "THREEDXFLAT_FORCE_QT="
@@ -275,6 +309,12 @@ set "REQ_HASH="
 for /f "skip=1 tokens=1" %%H in ('certutil -hashfile "%~1" SHA256 ^| findstr /R /I "^[0-9A-F][0-9A-F]"') do (
   if not defined REQ_HASH set "REQ_HASH=%%H"
 )
+goto :eof
+
+:check_occ
+set "BREP_IMPORT_OK=0"
+"%~1" -c "import OCC.Core" >nul 2>&1
+if not errorlevel 1 set "BREP_IMPORT_OK=1"
 goto :eof
 
 :log
