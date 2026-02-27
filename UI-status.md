@@ -615,6 +615,7 @@ Implemented in:
 - `qt_app/ribbon_window.py`
 - `qt_app/viewport.py`
 - `qt_app/mesh_cutting.py` (new)
+- `qt_app/flatten_panel.py` (new)
 
 Changes:
 
@@ -622,10 +623,16 @@ Changes:
    - If faces are selected, the flatten worker builds/uses the selected face submesh.
    - If no faces are selected, flatten still uses the full mesh path and preserves legacy open-patch fallback behavior.
 
-2. Added Cut/Seam interaction mode in the viewport workflow
+2. Added Cut/Seam interaction mode + left PropertyManager-style panel
    - New row-2 control: `Cut/Seam` toggle (alongside `Smart Select` / `Single Pick`).
-   - New actions: `Set Anchor`, `Add/Remove Cut`, `Clear Cuts`.
-   - Added seam status text in row-2: `Seam: A[...] C[...]`.
+   - Seam action controls moved to a left panel (`FlattenPanelWidget`) instead of the crowded command row.
+   - Left panel sections now include:
+     - `Selezioni` (selected faces count),
+     - `Bordo (Anchor)` (anchor field + set/auto buttons),
+     - `Tagli di scarico` (cut list + remove/clear),
+     - `Precisione` slider,
+     - `Stato` + guidance text.
+   - Command row keeps only mode-level controls (`Smart Select`, `Single Pick`, `Cut/Seam`, `Clear`, `Invert`, `Isolate`).
 
 3. Added edge picking + seam visualization in `ThreeDViewportWidget`
    - New seam state signal: `seamStateChanged`.
@@ -653,8 +660,7 @@ Changes:
 
 Current status / limitation observed in runtime:
 
-- The seam controls are functionally wired, but **the row-2 command surface is now overcrowded** and does not provide strong visual guidance for the seam workflow yet.
-- This is visible in the latest runtime screenshot and is the next planned UI polish/fix step.
+- Left-panel seam workflow is now structurally in place, but the edge picking behavior is still pre-polish (next pass adds SolidWorks-like hover-near-edge + Shift/Click semantics).
 
 ## How the 3D Viewport Currently Works
 

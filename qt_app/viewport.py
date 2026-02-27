@@ -1426,6 +1426,43 @@ class ThreeDViewportWidget(gl.GLViewWidget):
     def clear_seam_state(self) -> None:
         self.clear_cut_edges()
 
+    def remove_cut_edge(self, edge: Sequence[int]) -> Tuple[int, int] | None:
+        normalized = self._normalized_edge(edge)
+        if normalized not in self.cut_edges:
+            return None
+        self.cut_edges.discard(normalized)
+        self._update_seam_overlays()
+        self._emit_seam_state_changed()
+        return normalized
+
+    def auto_guess_anchor_edge(self) -> Tuple[int, int] | None:
+        if self.vertices is None or self.pick_faces is None:
+            return None
+        selected = self.get_selected_faces()
+        if not selected:
+            return None
+        idx = np.asarray(selected, dtype=np.int64)
+        idx = idx[(idx >= 0) & (idx < len(self.pick_faces))]
+        if len(idx) == 0:
+            return None
+        faces = np.asarray(self.pick_faces[idx], dtype=np.int64)
+        edges = np.vstack((faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]))
+        edges = np.sort(edges, axis=1)
+        uniq, counts = np.unique(edges, axis=0, return_counts=True)
+        boundary = uniq[counts == 1]
+        if len(boundary) == 0:
+            return None
+        lengths = np.linalg.norm(self.vertices[boundary[:, 0]] - self.vertices[boundary[:, 1]], axis=1)
+        best_idx = int(np.argmax(lengths))
+        best = self._normalized_edge(boundary[best_idx])
+        self.anchor_edge = best
+        if best in self.cut_edges:
+            self.cut_edges.discard(best)
+        self._active_edge_pick = best
+        self._update_seam_overlays()
+        self._emit_seam_state_changed()
+        return best
+
     def set_isolate_mode(self, enabled: bool) -> None:
         if bool(enabled):
             if not self.selected_faces:

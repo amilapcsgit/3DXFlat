@@ -44,6 +44,7 @@ from shapely.geometry import MultiPolygon, Polygon
 from flatten_surface.flatten_surface import flatten_mesh
 from flatten_surface.import_export import _extract_open_patches_from_watertight, export_dxf, export_svg, get_unit_scale
 from nesting import build_nesting_layout, export_nesting_layout
+from qt_app.flatten_panel import FlattenPanelWidget
 from qt_app import mesh_cutting
 from qt_app.mesh_io import load_mesh_file
 from qt_app.unified_command_bar import UnifiedCommandBar
@@ -685,6 +686,32 @@ class RibbonMainWindow(QMainWindow):
         self.viewport_splitter.addWidget(self.preview2d)
         self.viewport_splitter.setStretchFactor(0, 10)
         self.viewport_splitter.setStretchFactor(1, 4)
+        self.viewport_splitter.setSizes([4, 2])
+
+        self.flatten_panel = FlattenPanelWidget(central)
+        self.flatten_panel.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+
+        self.workspace_splitter = QSplitter(Qt.Orientation.Horizontal, central)
+        self.workspace_splitter.setChildrenCollapsible(False)
+        self.workspace_splitter.setHandleWidth(4)
+        self.workspace_splitter.setContentsMargins(0, 0, 0, 0)
+        self.workspace_splitter.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.workspace_splitter.setStyleSheet(
+            f"""
+            QSplitter::handle:horizontal {{
+                background-color: {tokens.BORDER};
+                margin: 0px;
+            }}
+            QSplitter::handle:horizontal:hover {{
+                background-color: {tokens.ACCENT};
+            }}
+            """
+        )
+        self.workspace_splitter.addWidget(self.flatten_panel)
+        self.workspace_splitter.addWidget(self.viewport_splitter)
+        self.workspace_splitter.setStretchFactor(0, 0)
+        self.workspace_splitter.setStretchFactor(1, 10)
+        self.workspace_splitter.setSizes([320, 1280])
 
         self.view_cube = ViewCubeWidget(self.viewport)
         self.view_cube.faceClicked.connect(self._on_viewcube_face_clicked)
@@ -765,8 +792,7 @@ class RibbonMainWindow(QMainWindow):
         self.isolate_btn = bar.btn_isolate
         self.toggle_2d_btn = bar.btn_toggle_2d
 
-        # MVP seam/cut controls are injected into the existing command bar row without
-        # changing the shared command-bar class contract.
+        # Keep only the mode toggle in the command row. Seam actions live in the left panel.
         row2 = bar.row2_layout
         self.cut_seam_mode_btn = QPushButton("Cut/Seam", self.header_area)
         self.cut_seam_mode_btn.setObjectName("ToggleButton")
@@ -776,36 +802,7 @@ class RibbonMainWindow(QMainWindow):
         self.cut_seam_mode_btn.setMinimumWidth(112)
         self.cut_seam_mode_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        self.seam_set_anchor_btn = QPushButton("Set Anchor", self.header_area)
-        self.seam_set_anchor_btn.setObjectName("StandardButton")
-        self.seam_set_anchor_btn.setMinimumHeight(40)
-        self.seam_set_anchor_btn.setMaximumHeight(40)
-        self.seam_set_anchor_btn.setMinimumWidth(104)
-        self.seam_set_anchor_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        self.seam_toggle_cut_btn = QPushButton("Add/Remove Cut", self.header_area)
-        self.seam_toggle_cut_btn.setObjectName("StandardButton")
-        self.seam_toggle_cut_btn.setMinimumHeight(40)
-        self.seam_toggle_cut_btn.setMaximumHeight(40)
-        self.seam_toggle_cut_btn.setMinimumWidth(132)
-        self.seam_toggle_cut_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        self.seam_clear_cuts_btn = QPushButton("Clear Cuts", self.header_area)
-        self.seam_clear_cuts_btn.setObjectName("StandardButton")
-        self.seam_clear_cuts_btn.setMinimumHeight(40)
-        self.seam_clear_cuts_btn.setMaximumHeight(40)
-        self.seam_clear_cuts_btn.setMinimumWidth(104)
-        self.seam_clear_cuts_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-
-        self.seam_status_label = QLabel("Seam: A[-] C[0]", self.header_area)
-        self.seam_status_label.setObjectName("FieldLabel")
-        self.seam_status_label.setMinimumWidth(124)
-
         row2.insertWidget(row2.indexOf(self.single_pick_btn) + 1, self.cut_seam_mode_btn)
-        seam_insert_idx = row2.indexOf(self.toggle_2d_btn)
-        for w in (self.seam_set_anchor_btn, self.seam_toggle_cut_btn, self.seam_clear_cuts_btn, self.seam_status_label):
-            row2.insertWidget(seam_insert_idx, w)
-            seam_insert_idx += 1
 
         self.method_combo = bar.method_combo
         self.technical_mode_btn = bar.btn_technical
@@ -837,13 +834,14 @@ class RibbonMainWindow(QMainWindow):
         self._wire_unified_command_bar_actions()
 
         root.addWidget(self.header_area, 0)
-        root.addWidget(self.viewport_splitter, 1)
+        root.addWidget(self.workspace_splitter, 1)
         root.setStretch(0, 0)
         root.setStretch(1, 10)
 
         self.setCentralWidget(central)
         self._apply_selection_mode()
         self._on_seam_state_changed({"active_edge": None, "anchor_edge": None, "cut_edges": []})
+        self.flatten_panel.set_precision_value(int(self.seam_slider.value()))
         self._update_workflow_enablement()
 
     def _wire_unified_command_bar_actions(self) -> None:
@@ -862,9 +860,12 @@ class RibbonMainWindow(QMainWindow):
         self.invert_selection_btn.clicked.connect(self.viewport.invert_selection)
         self.isolate_btn.toggled.connect(self._on_isolate_toggled)
         self.toggle_2d_btn.toggled.connect(self.toggle_2d_preview)
-        self.seam_set_anchor_btn.clicked.connect(self._on_set_anchor_clicked)
-        self.seam_toggle_cut_btn.clicked.connect(self._on_toggle_cut_clicked)
-        self.seam_clear_cuts_btn.clicked.connect(self._on_clear_cuts_clicked)
+        self.flatten_panel.requestSetAnchor.connect(self._on_set_anchor_clicked)
+        self.flatten_panel.requestToggleCut.connect(self._on_toggle_cut_clicked)
+        self.flatten_panel.requestRemoveCut.connect(self._on_remove_cut_from_panel)
+        self.flatten_panel.requestClearCuts.connect(self._on_clear_cuts_clicked)
+        self.flatten_panel.requestAutoGuessAnchor.connect(self._on_auto_guess_anchor_clicked)
+        self.flatten_panel.precisionChanged.connect(self._on_panel_precision_changed)
 
         self.units_combo.currentTextChanged.connect(self._update_dimension_label_only)
         self.technical_mode_btn.toggled.connect(self.viewport.set_technical_mode)
@@ -963,11 +964,19 @@ class RibbonMainWindow(QMainWindow):
 
     def _on_faces_selected(self, faces: List[int]) -> None:
         self.selected_label.setText(f"Selected: {len(faces)}")
+        self.flatten_panel.set_faces_count(len(faces))
         self.log(f"INFO | Surface selection updated: {len(faces)} face(s)")
         if hasattr(self, "isolate_btn") and not faces and self.isolate_btn.isChecked():
             self.isolate_btn.blockSignals(True)
             self.isolate_btn.setChecked(False)
             self.isolate_btn.blockSignals(False)
+        self._on_seam_state_changed(
+            {
+                "active_edge": self.viewport.get_active_edge_pick(),
+                "anchor_edge": self.viewport.get_anchor_edge(),
+                "cut_edges": self.viewport.get_cut_edges(),
+            }
+        )
 
     def _apply_selection_mode(self) -> None:
         if self.smart_select_btn.isChecked():
@@ -978,7 +987,7 @@ class RibbonMainWindow(QMainWindow):
             self.statusBar().showMessage("Face selection: Single Pick", 1500)
         elif hasattr(self, "cut_seam_mode_btn") and self.cut_seam_mode_btn.isChecked():
             self.viewport.set_selection_mode("cut")
-            self.statusBar().showMessage("Cut/Seam mode: click a mesh edge, then Set Anchor / Add-Remove Cut.", 2500)
+            self.statusBar().showMessage("Cut/Seam mode: hover edge, click=cut, Shift+click=anchor.", 2500)
         else:
             self.viewport.set_selection_mode("off")
 
@@ -987,20 +996,13 @@ class RibbonMainWindow(QMainWindow):
         active = info.get("active_edge")
         anchor = info.get("anchor_edge")
         cuts = info.get("cut_edges") or []
-        anchor_txt = "-" if not anchor else f"{int(anchor[0])}-{int(anchor[1])}"
-        self.seam_status_label.setText(f"Seam: A[{anchor_txt}] C[{len(cuts)}]")
-        active_txt = "-" if not active else f"{int(active[0])}-{int(active[1])}"
-        self.seam_toggle_cut_btn.setToolTip(
-            f"Add/remove active cut edge (active: {active_txt})"
-            if active
-            else "Pick an edge in Cut/Seam mode, then add/remove it as a cut."
-        )
-        self.seam_set_anchor_btn.setToolTip(
-            f"Set active edge as anchor (active: {active_txt})"
-            if active
-            else "Pick an edge in Cut/Seam mode, then set it as anchor."
-        )
-        self.seam_clear_cuts_btn.setToolTip("Clear anchor and all cut edges")
+        self.flatten_panel.set_anchor_edge(anchor)
+        self.flatten_panel.set_cut_edges(cuts, labels={self._norm_edge(edge): self._edge_label_basic(edge) for edge in cuts})
+
+        active_txt = "-" if not active else f"v{int(active[0])}-v{int(active[1])}"
+        patch_status = self._patch_state_text()
+        anchor_status = "none" if not anchor else "set"
+        self.flatten_panel.set_status_line(f"Seam: A[{anchor_status}]  C[{len(cuts)}]  Patch: {patch_status}  Hover: {active_txt}")
 
     def _on_set_anchor_clicked(self) -> None:
         edge = self.viewport.set_anchor_from_active_edge()
@@ -1039,6 +1041,39 @@ class RibbonMainWindow(QMainWindow):
         self.viewport.clear_cut_edges()
         self.log("INFO | Cleared anchor and cut edges.")
         self.statusBar().showMessage("Cleared anchor and cut edges.", 2000)
+
+    def _on_remove_cut_from_panel(self, edge_obj: object) -> None:
+        if not edge_obj:
+            return
+        try:
+            edge = (int(edge_obj[0]), int(edge_obj[1]))
+        except Exception:
+            return
+        removed = self.viewport.remove_cut_edge(edge)
+        if removed:
+            self.log(f"INFO | Cut edge removed: {removed[0]}-{removed[1]}")
+            self.statusBar().showMessage(f"Cut edge removed: {removed[0]}-{removed[1]}", 2000)
+
+    def _on_auto_guess_anchor_clicked(self) -> None:
+        edge = self.viewport.auto_guess_anchor_edge()
+        if edge is None:
+            QMessageBox.information(
+                self,
+                "Auto Bordo",
+                "Impossibile stimare automaticamente il bordo.\n\nSeleziona facce valide e riprova.",
+            )
+            return
+        self.log(f"INFO | Auto anchor selected: {edge[0]}-{edge[1]}")
+        self.statusBar().showMessage(f"Auto bordo: {edge[0]}-{edge[1]}", 2200)
+
+    def _on_panel_precision_changed(self, value: int) -> None:
+        ivalue = int(value)
+        if int(self.seam_slider.value()) == ivalue:
+            return
+        self.seam_slider.blockSignals(True)
+        self.seam_slider.setValue(ivalue)
+        self.seam_slider.blockSignals(False)
+        self._on_seam_slider_changed(ivalue)
 
     def _on_isolate_toggled(self, checked: bool) -> None:
         self.viewport.set_isolate_mode(checked)
@@ -1325,6 +1360,10 @@ class RibbonMainWindow(QMainWindow):
         self.quality_gauge.setFormat("Quality: -")
         self.preview2d.set_fold_polygon(None, fit=False)
         self.viewport.clear_selection()
+        self.flatten_panel.set_faces_count(0)
+        self.flatten_panel.set_anchor_edge(None)
+        self.flatten_panel.set_cut_edges([])
+        self.flatten_panel.set_status_line("Seam: A[none]  C[0]  Patch: -")
         self._update_workflow_enablement()
         self._update_status_metadata()
         self.log(f"INFO | Model loaded: {Path(path).name} ({len(vertices)} verts, {len(faces)} faces)")
@@ -1492,6 +1531,7 @@ class RibbonMainWindow(QMainWindow):
 
     def _on_seam_slider_changed(self, value: int) -> None:
         self.seam_label.setText(f"Seam [{value}] mm")
+        self.flatten_panel.set_precision_value(int(value))
         self._seam_debounce.start()
 
     def _apply_seam_to_preview(self) -> None:
@@ -1505,6 +1545,49 @@ class RibbonMainWindow(QMainWindow):
         QMessageBox.warning(self, "Flatten Warning", text)
         for w in warnings:
             self.log(f"WARN | {w}")
+
+    @staticmethod
+    def _norm_edge(edge: Sequence[int]) -> Tuple[int, int]:
+        a = int(edge[0])
+        b = int(edge[1])
+        return (a, b) if a < b else (b, a)
+
+    def _edge_length_mm(self, edge: Sequence[int]) -> float | None:
+        if self.loaded_vertices is None:
+            return None
+        a, b = self._norm_edge(edge)
+        if a < 0 or b < 0 or a >= len(self.loaded_vertices) or b >= len(self.loaded_vertices):
+            return None
+        scale = get_unit_scale(self.units_combo.currentText())
+        return float(np.linalg.norm(self.loaded_vertices[a] - self.loaded_vertices[b]) * scale)
+
+    def _edge_label_basic(self, edge: Sequence[int]) -> str:
+        a, b = self._norm_edge(edge)
+        length = self._edge_length_mm((a, b))
+        if length is None:
+            return f"Edge: v{a}-v{b}"
+        return f"Edge: v{a}-v{b} (len={length:.1f} mm)"
+
+    def _patch_state_text(self) -> str:
+        source_faces = self.viewport.pick_faces if self.viewport.pick_faces is not None else self.loaded_faces
+        if source_faces is None or len(source_faces) == 0:
+            return "-"
+        selected = self.viewport.get_selected_faces()
+        if selected:
+            idx = np.asarray(selected, dtype=np.int64)
+            idx = idx[(idx >= 0) & (idx < len(source_faces))]
+            if len(idx) == 0:
+                return "-"
+            faces = np.asarray(source_faces[idx], dtype=np.int64)
+        else:
+            faces = np.asarray(source_faces, dtype=np.int64)
+        topo = mesh_cutting.topology_report(faces)
+        state = "open" if topo.get("open_edges", 0) > 0 else "closed"
+        return (
+            f"{state} "
+            f"(loops={topo.get('boundary_loops', 0)}, "
+            f"comp={topo.get('connected_components', 0)})"
+        )
 
     def _update_distortion_gauge(self, flatten_result: Dict) -> None:
         metrics = flatten_result.get("metrics", {}) if flatten_result else {}
@@ -1630,24 +1713,37 @@ class RibbonMainWindow(QMainWindow):
             flatten_reason,
         )
         self._set_control_state(
-            self.seam_set_anchor_btn,
+            self.flatten_panel.btn_set_anchor,
             can_flatten,
-            "Set anchor edge from the active edge pick",
+            "Set anchor edge from hovered edge (or Shift+Click in viewport)",
             flatten_reason,
         )
         self._set_control_state(
-            self.seam_toggle_cut_btn,
+            self.flatten_panel.btn_auto_anchor,
             can_flatten,
-            "Add/remove a relief cut edge from the active edge pick",
+            "Auto-pick a deterministic boundary anchor",
             flatten_reason,
         )
         self._set_control_state(
-            self.seam_clear_cuts_btn,
+            self.flatten_panel.btn_toggle_cut,
+            can_flatten,
+            "Add/remove cut from hovered edge (or click in viewport)",
+            flatten_reason,
+        )
+        self._set_control_state(
+            self.flatten_panel.btn_remove_selected,
+            can_flatten,
+            "Remove selected cut from list",
+            flatten_reason,
+        )
+        self._set_control_state(
+            self.flatten_panel.btn_clear_cuts,
             can_flatten,
             "Clear anchor and cut edges",
             flatten_reason,
         )
-        self.seam_status_label.setEnabled(can_flatten)
+        self.flatten_panel.cut_edges_list.setEnabled(can_flatten)
+        self.flatten_panel.precision_slider.setEnabled(can_flatten)
         self._set_control_state(
             self.technical_mode_btn,
             can_flatten,
