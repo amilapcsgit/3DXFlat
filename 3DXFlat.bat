@@ -52,6 +52,9 @@ set "TMP=%LOCAL_BASE%\tmp"
 set "TEMP=%LOCAL_BASE%\tmp"
 set "TMPDIR=%LOCAL_BASE%\tmp"
 set "OPTIONAL_BREP_REQ=requirements-optional-brep.txt"
+set "PORTABLE_PY_VERSION=3.12.8"
+set "PORTABLE_PY_ROOT=%LOCAL_BASE%\python-%PORTABLE_PY_VERSION%-nuget"
+set "PORTABLE_PY_EXE=%PORTABLE_PY_ROOT%\tools\python.exe"
 if not exist "%LOCAL_BASE%" mkdir "%LOCAL_BASE%"
 if not exist "%PIP_CACHE_DIR%" mkdir "%PIP_CACHE_DIR%"
 if not exist "%TMP%" mkdir "%TMP%"
@@ -63,10 +66,15 @@ call :log "[1/5] Locating Python..."
 call :find_python
 
 if not defined BASE_PY (
-  call :log "ERROR: Python 3.12 not found in PATH."
-  echo Python 3.12 was not found.
-  echo Install Python 3.12 and enable "Add python.exe to PATH", then run again.
-  echo Download: https://www.python.org/downloads/windows/
+  echo     Python 3.12 not found on host. Bootstrapping local portable Python %PORTABLE_PY_VERSION%...
+  call :log "INFO: Host Python 3.12 not found. Bootstrapping local portable Python %PORTABLE_PY_VERSION%."
+  call :ensure_local_python_312
+)
+
+if not defined BASE_PY (
+  call :log "ERROR: Could not resolve Python 3.12 (host or local portable)."
+  echo Could not resolve Python 3.12, host or local portable bootstrap.
+  echo Install Python 3.12 or check network access to nuget.org, then run again.
   echo See runtime log: %RUNTIME_LOG%
   pause
   exit /b 1
@@ -300,6 +308,43 @@ if not defined BASE_PY (
 
 if not defined BASE_PY call :accept_python_312 "%LocalAppData%\Programs\Python\Python312\python.exe"
 if not defined BASE_PY call :accept_python_312 "C:\Python312\python.exe"
+goto :eof
+
+:ensure_local_python_312
+if exist "%PORTABLE_PY_EXE%" (
+  call :accept_python_312 "%PORTABLE_PY_EXE%"
+  if defined BASE_PY goto :eof
+)
+
+set "PORTABLE_PKG_URL=https://www.nuget.org/api/v2/package/python/%PORTABLE_PY_VERSION%"
+set "PORTABLE_PKG_NUPKG=%TMP%\python-%PORTABLE_PY_VERSION%.nupkg"
+set "PORTABLE_PKG_ZIP=%TMP%\python-%PORTABLE_PY_VERSION%.zip"
+set "PORTABLE_BOOTSTRAP_PS=%TMP%\bootstrap_py312.ps1"
+
+>"%PORTABLE_BOOTSTRAP_PS%" echo $ErrorActionPreference = 'Stop'
+>>"%PORTABLE_BOOTSTRAP_PS%" echo $pkgUrl = '%PORTABLE_PKG_URL%'
+>>"%PORTABLE_BOOTSTRAP_PS%" echo $pkgNupkg = '%PORTABLE_PKG_NUPKG%'
+>>"%PORTABLE_BOOTSTRAP_PS%" echo $pkgZip = '%PORTABLE_PKG_ZIP%'
+>>"%PORTABLE_BOOTSTRAP_PS%" echo $dest = '%PORTABLE_PY_ROOT%'
+>>"%PORTABLE_BOOTSTRAP_PS%" echo if ^(Test-Path $pkgNupkg^) { Remove-Item $pkgNupkg -Force }
+>>"%PORTABLE_BOOTSTRAP_PS%" echo if ^(Test-Path $pkgZip^) { Remove-Item $pkgZip -Force }
+>>"%PORTABLE_BOOTSTRAP_PS%" echo Invoke-WebRequest -Uri $pkgUrl -OutFile $pkgNupkg
+>>"%PORTABLE_BOOTSTRAP_PS%" echo Copy-Item $pkgNupkg $pkgZip -Force
+>>"%PORTABLE_BOOTSTRAP_PS%" echo if ^(Test-Path $dest^) { Remove-Item $dest -Recurse -Force }
+>>"%PORTABLE_BOOTSTRAP_PS%" echo Expand-Archive -Path $pkgZip -DestinationPath $dest -Force
+
+call :log "CMD START: powershell -NoProfile -ExecutionPolicy Bypass -File \"%PORTABLE_BOOTSTRAP_PS%\""
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PORTABLE_BOOTSTRAP_PS%" >>"%RUNTIME_LOG%" 2>&1
+set "RC=%ERRORLEVEL%"
+call :log "CMD END rc=%RC%"
+if not "%RC%"=="0" (
+  call :log "ERROR: Local portable Python bootstrap failed."
+  goto :eof
+)
+
+if exist "%PORTABLE_PY_EXE%" (
+  call :accept_python_312 "%PORTABLE_PY_EXE%"
+)
 goto :eof
 
 :accept_python_312
