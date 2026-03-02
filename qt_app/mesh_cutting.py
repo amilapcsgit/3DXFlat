@@ -131,6 +131,181 @@ def topology_report(faces: np.ndarray) -> Dict[str, int]:
     }
 
 
+def extract_mesh_candidate_edges(
+    faces: np.ndarray,
+    *,
+    face_indices: np.ndarray | None = None,
+    boundary_only: bool = False,
+) -> List[Edge]:
+    tri = np.asarray(faces, dtype=np.int64)
+    if tri.ndim != 2 or (len(tri) and tri.shape[1] != 3):
+        raise ValueError("faces must be Nx3.")
+    if len(tri) == 0:
+        return []
+    if face_indices is not None:
+        idx = np.asarray(face_indices, dtype=np.int64)
+        idx = idx[(idx >= 0) & (idx < len(tri))]
+        if len(idx) == 0:
+            return []
+        tri = tri[idx]
+
+    edge_count: Dict[Edge, int] = defaultdict(int)
+    for a, b, c in tri:
+        edge_count[_norm_edge((a, b))] += 1
+        edge_count[_norm_edge((b, c))] += 1
+        edge_count[_norm_edge((c, a))] += 1
+    if boundary_only:
+        return sorted([e for e, c in edge_count.items() if c == 1])
+    return sorted(edge_count.keys())
+
+
+def _point_segment_distance_sq_3d(point: np.ndarray, a: np.ndarray, b: np.ndarray) -> float:
+    ab = b - a
+    denom = float(np.dot(ab, ab))
+    if denom <= 1e-18:
+        d = point - a
+        return float(np.dot(d, d))
+    t = float(np.dot(point - a, ab) / denom)
+    t = max(0.0, min(1.0, t))
+    q = a + t * ab
+    d = point - q
+    return float(np.dot(d, d))
+
+
+def _largest_connected_edge_subset(edges: Sequence[Edge]) -> List[Edge]:
+    normed = sorted({_norm_edge(e) for e in edges})
+    if not normed:
+        return []
+    vertex_to_edges: Dict[int, List[Edge]] = defaultdict(list)
+    for e in normed:
+        vertex_to_edges[e[0]].append(e)
+        vertex_to_edges[e[1]].append(e)
+
+    unseen = set(normed)
+    best_comp: List[Edge] = []
+    while unseen:
+        start = min(unseen)
+        stack = [start]
+        unseen.remove(start)
+        comp: List[Edge] = []
+        while stack:
+            cur = stack.pop()
+            comp.append(cur)
+            for v in cur:
+                for nb in vertex_to_edges[v]:
+                    if nb in unseen:
+                        unseen.remove(nb)
+                        stack.append(nb)
+        comp_sorted = sorted(comp)
+        if len(comp_sorted) > len(best_comp):
+            best_comp = comp_sorted
+    return best_comp
+
+
+def map_brep_edge_polylines_to_mesh_edges(
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    edge_polylines: Dict[int, np.ndarray],
+    *,
+    edge_ids: Iterable[int] | None = None,
+    patch_face_indices: np.ndarray | None = None,
+    boundary_only: bool = True,
+    tolerance: float | None = None,
+) -> Dict[int, List[Edge]]:
+    verts = np.asarray(vertices, dtype=np.float64)
+    tri = np.asarray(faces, dtype=np.int64)
+    if verts.ndim != 2 or verts.shape[1] != 3:
+        raise ValueError("vertices must be Nx3.")
+    if tri.ndim != 2 or (len(tri) and tri.shape[1] != 3):
+        raise ValueError("faces must be Nx3.")
+
+    requested = sorted({int(eid) for eid in (edge_ids if edge_ids is not None else edge_polylines.keys())})
+    out: Dict[int, List[Edge]] = {int(eid): [] for eid in requested}
+    if len(verts) == 0 or len(tri) == 0 or not requested:
+        return out
+
+    candidate_edges = extract_mesh_candidate_edges(
+        tri,
+        face_indices=patch_face_indices,
+        boundary_only=bool(boundary_only),
+    )
+    if not candidate_edges:
+        if boundary_only:
+            candidate_edges = extract_mesh_candidate_edges(tri, face_indices=patch_face_indices, boundary_only=False)
+    if not candidate_edges:
+        return out
+
+    edge_arr = np.asarray(candidate_edges, dtype=np.int64)
+    va = verts[edge_arr[:, 0]]
+    vb = verts[edge_arr[:, 1]]
+    edge_mid = 0.5 * (va + vb)
+    edge_vec = vb - va
+    edge_len = np.linalg.norm(edge_vec, axis=1)
+    safe_len = np.where(edge_len < 1e-12, 1.0, edge_len)
+    edge_dir = edge_vec / safe_len[:, None]
+
+    if tolerance is None:
+        median_len = float(np.median(edge_len[edge_len > 1e-12])) if np.any(edge_len > 1e-12) else 0.0
+        tolerance = max(median_len * 1.75, 1e-3)
+    tol = float(max(tolerance, 1e-6))
+    search_radius = tol * 1.5
+
+    kd_tree = None
+    try:
+        from scipy.spatial import cKDTree  # type: ignore
+
+        kd_tree = cKDTree(edge_mid)
+    except Exception:
+        kd_tree = None
+
+    for edge_id in requested:
+        poly = np.asarray(edge_polylines.get(int(edge_id), np.empty((0, 3))), dtype=np.float64)
+        if poly.ndim != 2 or poly.shape[1] != 3 or len(poly) < 2:
+            out[int(edge_id)] = []
+            continue
+
+        mapped: List[Edge] = []
+        for i in range(len(poly) - 1):
+            p0 = np.asarray(poly[i], dtype=np.float64)
+            p1 = np.asarray(poly[i + 1], dtype=np.float64)
+            seg_vec = p1 - p0
+            seg_len = float(np.linalg.norm(seg_vec))
+            if seg_len <= 1e-12:
+                continue
+            seg_mid = 0.5 * (p0 + p1)
+            seg_dir = seg_vec / seg_len
+
+            if kd_tree is not None:
+                cand_idx = kd_tree.query_ball_point(seg_mid, search_radius)
+            else:
+                d2 = np.sum((edge_mid - seg_mid[None, :]) ** 2, axis=1)
+                cand_idx = np.nonzero(d2 <= (search_radius * search_radius))[0].tolist()
+            if not cand_idx:
+                # Fallback nearest midpoint when radius misses due sampling mismatch.
+                d2 = np.sum((edge_mid - seg_mid[None, :]) ** 2, axis=1)
+                cand_idx = [int(np.argmin(d2))]
+
+            best_edge = None
+            best_score = float("inf")
+            for idx in cand_idx:
+                idx_i = int(idx)
+                dist_sq = _point_segment_distance_sq_3d(seg_mid, va[idx_i], vb[idx_i])
+                orient = float(abs(np.clip(np.dot(seg_dir, edge_dir[idx_i]), -1.0, 1.0)))
+                # Distance dominates; orientation resolves ambiguous neighbors.
+                score = (dist_sq / (tol * tol)) + (1.0 - orient) * 0.35
+                if score < best_score:
+                    best_score = score
+                    best_edge = candidate_edges[idx_i]
+            if best_edge is not None:
+                mapped.append(_norm_edge(best_edge))
+
+        # Keep a contiguous subset to avoid scattered edge picks from noisy sampling.
+        mapped_unique = sorted(set(mapped))
+        mapped_connected = _largest_connected_edge_subset(mapped_unique)
+        out[int(edge_id)] = mapped_connected if mapped_connected else mapped_unique
+    return out
+
+
 def _try_libigl_cut_mesh(vertices: np.ndarray, faces: np.ndarray, cut_edges: set[Edge]):
     """Optional seam-cut path. Falls back to vertex-duplication unless a known helper is available."""
     try:
@@ -307,4 +482,3 @@ def choose_anchor_edge_instance(
     if boundary_instances:
         return min(boundary_instances)
     return min(instances)
-

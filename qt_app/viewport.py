@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 import math
-from typing import Dict, List, Sequence, Set, Tuple
+from typing import Dict, Iterable, List, Sequence, Set, Tuple
 
 import numpy as np
 from OpenGL import GL as ogl
@@ -13,6 +13,7 @@ from PySide6.QtGui import QColor, QLinearGradient, QPainter, QRadialGradient, QV
 from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QLabel, QMenu, QSizePolicy, QToolButton, QVBoxLayout, QWidget
 import trimesh
 from qt_app import edge_selection
+from qt_app import mesh_cutting
 from ui.icon_loader import IconRegistry, load_icon_svg_file
 from ui.theme import tokens
 
@@ -1863,62 +1864,33 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             return int(self._brep_tri_face_id[idx]) in self.selected_faces
         return idx in self.selected_faces
 
-    def _build_brep_edge_mesh_mapping(self) -> None:
+    def _build_brep_edge_mesh_mapping(
+        self,
+        *,
+        edge_ids: Iterable[int] | None = None,
+        patch_face_indices: np.ndarray | None = None,
+    ) -> None:
         self._brep_edge_to_mesh_edges = {}
         if not self._brep_selection_enabled() or self.vertices is None or self.pick_faces is None:
             return
         if not self._brep_edge_polylines:
             return
-
-        mesh_edges = self._all_unique_mesh_edges()
-        if not mesh_edges:
-            return
-        mesh_edge_set = set(mesh_edges)
-
-        verts = np.asarray(self.vertices, dtype=np.float64)
-        nearest_fn = None
         try:
-            from scipy.spatial import cKDTree  # type: ignore
-
-            tree = cKDTree(verts)
-
-            def _nearest(points: np.ndarray) -> np.ndarray:
-                _, idx = tree.query(points, k=1)
-                return np.asarray(idx, dtype=np.int64)
-
-            nearest_fn = _nearest
+            mapped = mesh_cutting.map_brep_edge_polylines_to_mesh_edges(
+                vertices=np.asarray(self.vertices, dtype=np.float64),
+                faces=np.asarray(self.pick_faces, dtype=np.int64),
+                edge_polylines=self._brep_edge_polylines,
+                edge_ids=edge_ids,
+                patch_face_indices=patch_face_indices,
+                boundary_only=True,
+            )
         except Exception:
-            nearest_fn = None
+            mapped = {}
 
-        for edge_id, polyline in self._brep_edge_polylines.items():
-            arr = np.asarray(polyline, dtype=np.float64)
-            if arr.ndim != 2 or arr.shape[1] != 3 or len(arr) < 2:
-                self._brep_edge_to_mesh_edges[int(edge_id)] = []
-                continue
-
-            if nearest_fn is not None:
-                nearest_idx = nearest_fn(arr)
-            else:
-                nearest_idx_list: List[int] = []
-                for p in arr:
-                    d2 = np.sum((verts - p[None, :]) ** 2, axis=1)
-                    nearest_idx_list.append(int(np.argmin(d2)))
-                nearest_idx = np.asarray(nearest_idx_list, dtype=np.int64)
-
-            mapped_edges: List[Tuple[int, int]] = []
-            for i in range(len(nearest_idx) - 1):
-                a = int(nearest_idx[i])
-                b = int(nearest_idx[i + 1])
-                if a == b:
-                    continue
-                e = self._normalized_edge((a, b))
-                if e in mesh_edge_set:
-                    mapped_edges.append(e)
-            if not mapped_edges and len(nearest_idx) >= 2:
-                e = self._normalized_edge((int(nearest_idx[0]), int(nearest_idx[-1])))
-                if e in mesh_edge_set:
-                    mapped_edges.append(e)
-            self._brep_edge_to_mesh_edges[int(edge_id)] = sorted(set(mapped_edges))
+        self._brep_edge_to_mesh_edges = {
+            int(k): [self._normalized_edge(e) for e in vals]
+            for k, vals in dict(mapped).items()
+        }
 
     def _brep_chain_mesh_edges(self, chain: Sequence[int]) -> List[Tuple[int, int]]:
         out: set[Tuple[int, int]] = set()
@@ -2615,6 +2587,10 @@ class ThreeDViewportWidget(gl.GLViewWidget):
 
             boundary_edge_ids = sorted([eid for eid, count in edge_counts.items() if count == 1])
             self._brep_boundary_edge_ids = set(boundary_edge_ids)
+            self._build_brep_edge_mesh_mapping(
+                edge_ids=boundary_edge_ids,
+                patch_face_indices=self._selected_pick_face_indices(),
+            )
             try:
                 chains = edge_selection.build_edge_chains(
                     boundary_edge_ids,
