@@ -817,6 +817,51 @@ Implemented follow-up UX and mapping changes on branch `B-rep`:
      - collinear edges stay chained,
      - right-angle corners split into independent selectable segments.
 
+### 7.3 B-Rep Selection Persistence + Advanced Seam Routing Fix
+
+Implemented follow-up fixes on branch `B-rep-selection-persistence`:
+
+1. Camera/view navigation preserves selection + seam state
+   - View cube / view preset / reset-camera navigation is now guarded as camera-only:
+     - selected CAD faces persist,
+     - anchor edge persists,
+     - relief cut edges persist,
+     - seam candidate cache persists.
+   - Added explicit seam-state snapshot/restore around camera preset/reset navigation paths.
+
+2. Advanced mesh seam now works with selected CAD faces
+   - In `Cut/Seam` mode with `Advanced mesh seam` enabled:
+     - `Ctrl+Click` always targets tessellated patch boundary edges,
+     - `Shift+Ctrl+Click` sets anchor on tessellated patch boundary edge.
+   - Works with selected B-Rep faces still active (no deselection required).
+   - Added persistent manual B-Rep mesh-edge seam state so advanced cuts are not dropped by B-Rep chain sync.
+
+3. Seam candidate recompute strategy is now dirty-flag based
+   - Recompute is triggered by:
+     - selection changes,
+     - model load/change,
+     - pick mode changes,
+     - precision slider changes.
+   - Recompute is not triggered by:
+     - orbit/pan/zoom,
+     - view presets,
+     - view cube clicks.
+
+4. Debug instrumentation (env-gated)
+   - Added `DXF_DEBUG_SELECTION=1` instrumentation for:
+     - reset callsites (`clear_view`, `set_mesh`, `reset_camera`, `apply_view_preset`, selection/cut clear helpers),
+     - seam-candidate recompute state transitions,
+     - Cut/Seam Ctrl+Click branch routing details.
+   - Default runtime remains silent when env var is not set.
+
+Manual acceptance checks performed:
+
+- Load `data/new iges test/ProvaFunzioneTelo.IGS`.
+- Select patch CAD faces and keep `Facce selezionate > 0`.
+- Enable `Advanced mesh seam`, then use `Ctrl+Click` to toggle multiple tessellated boundary edges.
+- Use `Shift+Ctrl+Click` to set anchor.
+- Switch view repeatedly via view cube/presets (`TOP/FRONT/RIGHT`) and verify faces, anchor, cut list remain intact.
+
 ## How the 3D Viewport Currently Works
 
 `ThreeDViewportWidget` (`qt_app/viewport.py`) extends `pyqtgraph.opengl.GLViewWidget` and manages:
