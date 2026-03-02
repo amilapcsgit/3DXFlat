@@ -314,6 +314,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._active_brep_chain: Tuple[int, ...] | None = None
         self._hover_brep_edge_id: int | None = None
         self._active_brep_edge_id: int | None = None
+        self._brep_manual_anchor_edge: Tuple[int, int] | None = None
+        self._brep_manual_cut_edges: Set[Tuple[int, int]] = set()
         self._anchor_brep_chain: Tuple[int, ...] | None = None
         self._cut_brep_chains: Set[Tuple[int, ...]] = set()
         self._brep_boundary_edge_ids: Set[int] = set()
@@ -896,17 +898,17 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                         self._active_edge_pick = normalized
                         self._hover_edge = normalized
                         if self.model_type == "brep":
-                            # Advanced mode bypasses B-Rep chain state and works directly on mesh edges.
+                            # Advanced mode bypasses B-Rep chain picking and works on tessellated patch edges directly.
                             self._hover_brep_chain = None
                             self._active_brep_chain = None
                             self._hover_brep_edge_id = None
                             self._active_brep_edge_id = None
-                            self._anchor_brep_chain = None
-                            self._cut_brep_chains.clear()
-                            self._brep_cut_display_edges = []
-                            self._brep_anchor_display_edge = None
-                            self._brep_display_edge_to_chain = {}
                         if bool(mods & Qt.KeyboardModifier.ShiftModifier):
+                            if self.model_type == "brep":
+                                self._brep_manual_anchor_edge = normalized
+                                self._anchor_brep_chain = None
+                                if normalized in self._brep_manual_cut_edges:
+                                    self._brep_manual_cut_edges.discard(normalized)
                             self.anchor_edge = normalized
                             if normalized in self.cut_edges:
                                 self.cut_edges.discard(normalized)
@@ -914,10 +916,18 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                             if self.anchor_edge is not None and normalized == self.anchor_edge:
                                 event.accept()
                                 return
-                            if normalized in self.cut_edges:
-                                self.cut_edges.discard(normalized)
+                            if self.model_type == "brep":
+                                if normalized in self._brep_manual_cut_edges:
+                                    self._brep_manual_cut_edges.discard(normalized)
+                                else:
+                                    self._brep_manual_cut_edges.add(normalized)
                             else:
-                                self.cut_edges.add(normalized)
+                                if normalized in self.cut_edges:
+                                    self.cut_edges.discard(normalized)
+                                else:
+                                    self.cut_edges.add(normalized)
+                        if self.model_type == "brep":
+                            self._sync_brep_chain_edge_state()
                         self._update_seam_overlays()
                         self._emit_seam_state_changed()
                         self._dbg_selection(
@@ -1352,6 +1362,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._active_brep_chain = None
         self._hover_brep_edge_id = None
         self._active_brep_edge_id = None
+        self._brep_manual_anchor_edge = None
+        self._brep_manual_cut_edges.clear()
         self._anchor_brep_chain = None
         self._cut_brep_chains.clear()
         self._brep_boundary_edge_ids.clear()
@@ -1426,6 +1438,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             f"anchor={self.anchor_edge} "
             f"cuts={len(self.cut_edges)} "
             f"hover={self._hover_edge} "
+            f"manual_anchor={self._brep_manual_anchor_edge} "
+            f"manual_cuts={len(self._brep_manual_cut_edges)} "
             f"brep_chain_anchor={self._anchor_brep_chain is not None} "
             f"brep_chain_cuts={len(self._cut_brep_chains)} "
             f"pick_strategy={self._seam_pick_strategy}"
@@ -1449,6 +1463,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             "cut_brep_chains": {tuple(ch) for ch in self._cut_brep_chains},
             "hover_brep_edge_id": self._hover_brep_edge_id,
             "active_brep_edge_id": self._active_brep_edge_id,
+            "brep_manual_anchor_edge": None if self._brep_manual_anchor_edge is None else tuple(self._brep_manual_anchor_edge),
+            "brep_manual_cut_edges": {tuple(e) for e in self._brep_manual_cut_edges},
             "brep_boundary_edge_ids": set(self._brep_boundary_edge_ids),
             "brep_boundary_chains": [tuple(ch) for ch in self._brep_boundary_chains],
             "brep_edge_to_chain": {int(k): tuple(v) for k, v in self._brep_edge_to_chain.items()},
@@ -1473,6 +1489,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._cut_brep_chains = {tuple(ch) for ch in state.get("cut_brep_chains", set())}
         self._hover_brep_edge_id = state.get("hover_brep_edge_id")
         self._active_brep_edge_id = state.get("active_brep_edge_id")
+        self._brep_manual_anchor_edge = state.get("brep_manual_anchor_edge")
+        self._brep_manual_cut_edges = {self._normalized_edge(e) for e in state.get("brep_manual_cut_edges", set())}
         self._brep_boundary_edge_ids = set(state.get("brep_boundary_edge_ids", set()))
         self._brep_boundary_chains = [tuple(ch) for ch in state.get("brep_boundary_chains", [])]
         self._brep_edge_to_chain = {int(k): tuple(v) for k, v in dict(state.get("brep_edge_to_chain", {})).items()}
@@ -1544,6 +1562,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._active_brep_chain = None
         self._hover_brep_edge_id = None
         self._active_brep_edge_id = None
+        self._brep_manual_anchor_edge = None
+        self._brep_manual_cut_edges.clear()
         self._anchor_brep_chain = None
         self._cut_brep_chains.clear()
         self._brep_boundary_edge_ids.clear()
@@ -1806,6 +1826,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             changed = bool(self._cut_brep_chains) or (self._anchor_brep_chain is not None) or (self._active_brep_chain is not None)
             self._cut_brep_chains.clear()
             self._anchor_brep_chain = None
+            self._brep_manual_anchor_edge = None
+            self._brep_manual_cut_edges.clear()
             self._active_brep_chain = None
             self._hover_brep_chain = None
             self._active_brep_edge_id = None
@@ -1837,6 +1859,12 @@ class ThreeDViewportWidget(gl.GLViewWidget):
     def remove_cut_edge(self, edge: Sequence[int]) -> Tuple[int, int] | None:
         if self.model_type == "brep":
             normalized = self._normalized_edge(edge)
+            if normalized in self._brep_manual_cut_edges:
+                self._brep_manual_cut_edges.discard(normalized)
+                self._sync_brep_chain_edge_state()
+                self._update_seam_overlays()
+                self._emit_seam_state_changed()
+                return normalized
             chain = self._brep_display_edge_to_chain.get(normalized)
             if chain is None or chain not in self._cut_brep_chains:
                 return None
@@ -2024,19 +2052,25 @@ class ThreeDViewportWidget(gl.GLViewWidget):
     def _sync_brep_chain_edge_state(self) -> None:
         if self.model_type != "brep":
             return
-        self.cut_edges.clear()
+        self.cut_edges = set(self._brep_manual_cut_edges)
         self._brep_cut_display_edges = []
         self._brep_anchor_display_edge = None
         self._brep_display_edge_to_chain = {}
 
-        if self._anchor_brep_chain is not None:
-            anchor_rep = self._brep_chain_representative_edge(self._anchor_brep_chain)
-            self.anchor_edge = anchor_rep
-            self._brep_anchor_display_edge = anchor_rep
-            if anchor_rep is not None:
-                self._brep_display_edge_to_chain[self._normalized_edge(anchor_rep)] = tuple(self._anchor_brep_chain)
+        if self._brep_manual_anchor_edge is not None:
+            manual_anchor = self._normalized_edge(self._brep_manual_anchor_edge)
+            self.anchor_edge = manual_anchor
+            self._brep_anchor_display_edge = manual_anchor
         else:
             self.anchor_edge = None
+
+        if self._anchor_brep_chain is not None:
+            anchor_rep = self._brep_chain_representative_edge(self._anchor_brep_chain)
+            if self._brep_manual_anchor_edge is None:
+                self.anchor_edge = anchor_rep
+                self._brep_anchor_display_edge = anchor_rep
+            if anchor_rep is not None:
+                self._brep_display_edge_to_chain[self._normalized_edge(anchor_rep)] = tuple(self._anchor_brep_chain)
 
         for chain in sorted(self._cut_brep_chains):
             mesh_edges = self._brep_chain_mesh_edges(chain)
@@ -2047,12 +2081,23 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                 nr = self._normalized_edge(rep)
                 self._brep_cut_display_edges.append(nr)
                 self._brep_display_edge_to_chain[nr] = tuple(chain)
+
+        # Keep manual advanced-mode mesh cuts visible in the panel payload as well.
+        for e in sorted(self._brep_manual_cut_edges):
+            self._brep_cut_display_edges.append(self._normalized_edge(e))
+
+        if self.anchor_edge is not None and self.anchor_edge in self.cut_edges:
+            self.cut_edges.discard(self.anchor_edge)
+            if self.anchor_edge in self._brep_manual_cut_edges:
+                self._brep_manual_cut_edges.discard(self.anchor_edge)
+
         self._brep_cut_display_edges = sorted(set(self._brep_cut_display_edges))
 
     def _set_brep_anchor_chain(self, chain: Sequence[int]) -> Tuple[int, int] | None:
         normalized_chain = tuple(int(x) for x in chain)
         if not normalized_chain:
             return None
+        self._brep_manual_anchor_edge = None
         self._anchor_brep_chain = normalized_chain
         self._cut_brep_chains.discard(normalized_chain)
         self._sync_brep_chain_edge_state()
@@ -2109,7 +2154,11 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                 "hover_edge": None if self._hover_edge is None else tuple(self._hover_edge),
                 "anchor_edge": anchor_payload,
                 "cut_edges": cut_payload,
-                "cut_chain_count": len(self._cut_brep_chains) if self.model_type == "brep" else len(self.cut_edges),
+                "cut_chain_count": (
+                    len(self._cut_brep_chains) + len(self._brep_manual_cut_edges)
+                    if self.model_type == "brep"
+                    else len(self.cut_edges)
+                ),
                 "boundary_edges": [tuple(e) for e in sorted(self._seam_boundary_edge_set)],
                 "pick_strategy": self._seam_pick_strategy,
             }
@@ -2748,6 +2797,19 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                 for e in self._brep_chain_mesh_edges((int(edge_id),)):
                     mesh_boundary_edges.add(self._normalized_edge(e))
             self._seam_boundary_edge_set = set(mesh_boundary_edges)
+            if self._brep_manual_anchor_edge is not None:
+                ma = self._normalized_edge(self._brep_manual_anchor_edge)
+                if ma not in self._seam_boundary_edge_set:
+                    self._dbg_selection("_recompute_seam_candidates() dropped manual anchor (outside selected patch boundary)")
+                    self._brep_manual_anchor_edge = None
+            if self._brep_manual_cut_edges:
+                filtered_manual = {self._normalized_edge(e) for e in self._brep_manual_cut_edges if self._normalized_edge(e) in self._seam_boundary_edge_set}
+                if len(filtered_manual) != len(self._brep_manual_cut_edges):
+                    self._dbg_selection(
+                        "_recompute_seam_candidates() dropped manual cuts outside selected patch boundary "
+                        f"(kept={len(filtered_manual)} / prev={len(self._brep_manual_cut_edges)})"
+                    )
+                self._brep_manual_cut_edges = filtered_manual
             self._seam_candidate_edges = sorted(mesh_boundary_edges)
             if self._brep_boundary_edge_ids:
                 if self._brep_pick_mode == "chain" and self._brep_boundary_chains:
@@ -2770,6 +2832,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._hover_brep_edge_id = None
         self._active_brep_edge_id = None
         self._anchor_brep_chain = None
+        self._brep_manual_anchor_edge = None
+        self._brep_manual_cut_edges.clear()
         self._cut_brep_chains.clear()
         self.cut_edges.clear()
         self.anchor_edge = None
