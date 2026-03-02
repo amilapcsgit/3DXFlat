@@ -726,9 +726,9 @@ What was added:
 
 Current B-Rep limitation:
 
-- Chain->mesh edge mapping is currently nearest-vertex/polyline based and heuristic.
-- If mapping yields zero valid mesh edges for a chosen chain, flatten may report that cuts are outside the patch.
-- UI still shows representative edges in the panel (not full chain names yet).
+- B-Rep chain/edge -> mesh-edge mapping is now geometric and patch-boundary aware, but can still fail on very coarse tessellation or ambiguous near-parallel boundaries.
+- If mapping still yields zero valid mesh edges for a selected Bordo/Taglio, flatten reports that cuts are outside the patch.
+- UI currently shows representative edge labels in panel lists (not full chain names).
 
 ### 7.1 B-Rep Runtime Hardening Follow-up (B-rep)
 
@@ -775,6 +775,47 @@ Additional current CAD-data limitation observed:
 
 - Some STEP files can be topologically edge-only in OCC for current reader/settings (example observed: `data/ProvaFunzioneTelo.STEP` => edges detected, zero faces).
 - In that case loader correctly reports no B-Rep faces and import cannot proceed as face-based CAD patch workflow.
+
+### 7.2 B-Rep Cut/Seam Selection Parity Update (SolidWorks-like Behavior)
+
+Implemented follow-up UX and mapping changes on branch `B-rep`:
+
+1. Click-vs-drag seam interaction (no Ctrl required for normal seam selection)
+   - In `Cut/Seam` mode:
+     - `Click` toggles relief cut.
+     - `Shift+Click` sets anchor.
+   - Left mouse uses an explicit click-vs-drag threshold (`8px`):
+     - release without drag = seam/selection click action,
+     - drag past threshold is forwarded to base viewport navigation path.
+
+2. Edge-first B-Rep picking with optional chain mode
+   - Left panel now exposes B-Rep seam pick granularity:
+     - `Edge Mode (segmento)` (default)
+     - `Chain Mode (tangente)`
+   - Edge mode picks a single B-Rep boundary edge under cursor (hover -> click).
+   - Chain mode picks the tangent-continuous chain containing the best hovered edge.
+   - Chain construction now breaks at hard corners using tangent continuity checks (instead of maximal loop-only grouping).
+
+3. Advanced mesh-edge seam mode
+   - New left panel option:
+     - `Advanced mesh seam (Ctrl+Click)`
+   - When enabled in `Cut/Seam` mode:
+     - `Ctrl+Click` toggles tessellated patch boundary mesh edges directly,
+     - `Shift+Ctrl+Click` sets anchor on a tessellated mesh edge.
+   - This bypasses B-Rep chain semantics for manual segmented seams.
+
+4. Robust B-Rep edge -> tessellated mesh mapping
+   - Replaced nearest-vertex heuristic mapping with a geometric edge mapper in `qt_app/mesh_cutting.py`.
+   - Mapping now:
+     - builds candidate mesh edges from selected patch boundary first,
+     - scores candidates by spatial proximity + directional consistency against B-Rep polyline segments,
+     - keeps the largest connected mapped edge subset to avoid scattered edges.
+   - `qt_app/viewport.py` now rebuilds this mapping per selected CAD patch boundary during seam candidate recomputation.
+
+5. Regression test added
+   - `tests/test_edge_selection.py` now includes tangent-segmentation coverage:
+     - collinear edges stay chained,
+     - right-angle corners split into independent selectable segments.
 
 ## How the 3D Viewport Currently Works
 

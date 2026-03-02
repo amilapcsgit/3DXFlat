@@ -99,3 +99,22 @@ def test_screen_space_pick_polyline_chain():
         px_tol=12.0,
     )
     assert picked == (1,)
+
+
+def test_build_edge_chains_breaks_at_corners_and_keeps_tangent_segments():
+    edge_polylines = {
+        1: np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]], dtype=np.float64),
+        2: np.array([[1.0, 0.0, 0.0], [2.0, 0.0, 0.0]], dtype=np.float64),
+        3: np.array([[2.0, 0.0, 0.0], [2.0, 1.0, 0.0]], dtype=np.float64),
+        10: np.array([[10.0, 0.0, 0.0], [11.0, 0.0, 0.0]], dtype=np.float64),
+        11: np.array([[11.0, 0.0, 0.0], [11.0, 1.0, 0.0]], dtype=np.float64),
+        12: np.array([[11.0, 1.0, 0.0], [10.0, 1.0, 0.0]], dtype=np.float64),
+        13: np.array([[10.0, 1.0, 0.0], [10.0, 0.0, 0.0]], dtype=np.float64),
+    }
+
+    chains = build_edge_chains([1, 2, 3], edge_polylines, tangent_thresh_deg=20.0)
+    assert (1, 2) in chains
+    assert (3,) in chains
+
+    rectangle_chains = build_edge_chains([10, 11, 12, 13], edge_polylines, tangent_thresh_deg=20.0)
+    assert rectangle_chains == [(10,), (11,), (12,), (13,)]
