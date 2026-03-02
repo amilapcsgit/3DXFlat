@@ -55,6 +55,18 @@ set "OPTIONAL_BREP_REQ=requirements-optional-brep.txt"
 set "PORTABLE_PY_VERSION=3.12.8"
 set "PORTABLE_PY_ROOT=%LOCAL_BASE%\python-%PORTABLE_PY_VERSION%-nuget"
 set "PORTABLE_PY_EXE=%PORTABLE_PY_ROOT%\tools\python.exe"
+if defined USERPROFILE (
+  set "MAMBA_BASE=%USERPROFILE%\3DXF"
+) else (
+  set "MAMBA_BASE=%LOCAL_BASE%\3DXF"
+)
+if "!MAMBA_BASE!"=="\3DXF" set "MAMBA_BASE=%LOCAL_BASE%\3DXF"
+set "MAMBA_ROOT=%MAMBA_BASE%\bin"
+set "MAMBA_EXE=%MAMBA_ROOT%\micromamba.exe"
+set "MAMBA_ROOT_PREFIX=%MAMBA_BASE%\r"
+set "MAMBA_ENV_PREFIX=%MAMBA_BASE%\e312"
+set "MAMBA_ENV_PY=%MAMBA_ENV_PREFIX%\python.exe"
+set "USING_MAMBA_RUNTIME=0"
 if not exist "%LOCAL_BASE%" mkdir "%LOCAL_BASE%"
 if not exist "%PIP_CACHE_DIR%" mkdir "%PIP_CACHE_DIR%"
 if not exist "%TMP%" mkdir "%TMP%"
@@ -197,8 +209,8 @@ if "%NEED_INSTALL%"=="1" (
     exit /b 1
   )
 
-  call :log "CMD START: \"%VENV_PY%\" -c \"import customtkinter, PySide6, pyqtgraph, OpenGL, gmsh, igl\""
-  "%VENV_PY%" -c "import customtkinter, PySide6, pyqtgraph, OpenGL, gmsh, igl" >>"%RUNTIME_LOG%" 2>&1
+  call :log "CMD START: \"%VENV_PY%\" -c \"import PySide6, pyqtgraph, OpenGL, gmsh, igl\""
+  "%VENV_PY%" -c "import PySide6, pyqtgraph, OpenGL, gmsh, igl" >>"%RUNTIME_LOG%" 2>&1
   set "RC=!ERRORLEVEL!"
   call :log "CMD END rc=!RC!"
   if not "!RC!"=="0" (
@@ -213,33 +225,18 @@ if exist "%OPTIONAL_BREP_REQ%" (
   set "BREP_IMPORT_OK=0"
   call :check_occ "%VENV_PY%"
   if "!BREP_IMPORT_OK!"=="1" (
-    echo [4.1/5] B-Rep dependency present: pythonocc-core.
+    echo [4.1/5] B-Rep dependency present: OpenCascade.
   ) else (
-    echo [4.1/5] Installing B-Rep dependency: pythonocc-core...
-    call :log "CMD START: \"%VENV_PY%\" -m pip install -r %OPTIONAL_BREP_REQ%"
-    "%VENV_PY%" -m pip install -r "%OPTIONAL_BREP_REQ%" >>"%RUNTIME_LOG%" 2>&1
-    set "RC=!ERRORLEVEL!"
-    call :log "CMD END rc=!RC!"
-    if not "!RC!"=="0" (
+    echo [4.1/5] Provisioning B-Rep runtime ^(OpenCascade via micromamba^)...
+    call :log "INFO: OCC not available in current venv. Provisioning local micromamba runtime."
+    call :ensure_mamba_occ_runtime
+    if not "!USING_MAMBA_RUNTIME!"=="1" (
       call :log "ERROR: Mandatory B-Rep dependency install failed."
-      echo ERROR: Failed to install mandatory B-Rep dependency.
-      echo        STEP/IGES import requires pythonocc-core.
+      echo ERROR: Failed to provision mandatory B-Rep dependency.
+      echo        STEP/IGES import requires OpenCascade runtime.
       echo        See runtime log: %RUNTIME_LOG%
       pause
       exit /b 1
-    ) else (
-      set "BREP_IMPORT_OK=0"
-      call :check_occ "%VENV_PY%"
-      if "!BREP_IMPORT_OK!"=="1" (
-        echo       pythonocc-core installed successfully.
-      ) else (
-        call :log "ERROR: pythonocc-core installed but OCC import still fails."
-        echo ERROR: pythonocc-core install completed, but OCC import check still fails.
-        echo        STEP/IGES import requires pythonocc-core.
-        echo        See runtime log: %RUNTIME_LOG%
-        pause
-        exit /b 1
-      )
     )
   )
 ) else (
@@ -289,15 +286,6 @@ set "PY_EXE="
 if defined PYTHON_EXE call :accept_python_312 "%PYTHON_EXE%"
 
 if not defined BASE_PY (
-  where.exe py >nul 2>&1
-  if not errorlevel 1 (
-    set "CAND_EXE="
-    for /f "usebackq delims=" %%P in (`py -3.12 -c "import sys; print(sys.executable)" 2^>nul`) do if not defined CAND_EXE set "CAND_EXE=%%P"
-    if defined CAND_EXE call :accept_python_312 "!CAND_EXE!"
-  )
-)
-
-if not defined BASE_PY (
   where.exe python >nul 2>&1
   if not errorlevel 1 (
     for /f "usebackq delims=" %%P in (`where.exe python 2^>nul`) do (
@@ -345,6 +333,186 @@ if not "%RC%"=="0" (
 if exist "%PORTABLE_PY_EXE%" (
   call :accept_python_312 "%PORTABLE_PY_EXE%"
 )
+goto :eof
+
+:ensure_mamba_occ_runtime
+set "USING_MAMBA_RUNTIME=0"
+set "ACTIVE_MAMBA_ROOT=%MAMBA_ROOT_PREFIX%"
+set "ACTIVE_MAMBA_ENV=%MAMBA_ENV_PREFIX%"
+set "ACTIVE_MAMBA_PY=%ACTIVE_MAMBA_ENV%\python.exe"
+
+if exist "%ACTIVE_MAMBA_PY%" (
+  call :check_occ "%ACTIVE_MAMBA_PY%"
+  if "!BREP_IMPORT_OK!"=="1" (
+    set "MAMBA_ROOT_PREFIX=%ACTIVE_MAMBA_ROOT%"
+    set "MAMBA_ENV_PREFIX=%ACTIVE_MAMBA_ENV%"
+    set "MAMBA_ENV_PY=%ACTIVE_MAMBA_PY%"
+    set "USING_MAMBA_RUNTIME=1"
+    set "VENV_PY=%ACTIVE_MAMBA_PY%"
+    call :log "INFO: Reusing existing micromamba runtime with OCC."
+    goto :eof
+  )
+)
+
+call :bootstrap_mamba_binary
+if not "%RC%"=="0" (
+  goto :eof
+)
+
+call :create_mamba_occ_env "%ACTIVE_MAMBA_ROOT%" "%ACTIVE_MAMBA_ENV%"
+if "!RC!"=="0" goto :mamba_env_created
+
+call :log "WARN: micromamba OCC env creation failed in primary prefix. Retrying with fresh prefix."
+set "ACTIVE_MAMBA_ROOT=%MAMBA_BASE%\r2"
+set "ACTIVE_MAMBA_ENV=%MAMBA_BASE%\e312b"
+call :cleanup_mamba_prefix "%ACTIVE_MAMBA_ROOT%" "%ACTIVE_MAMBA_ENV%"
+call :create_mamba_occ_env "%ACTIVE_MAMBA_ROOT%" "%ACTIVE_MAMBA_ENV%"
+if not "!RC!"=="0" (
+  call :log "ERROR: micromamba OCC env creation failed after retry."
+  goto :eof
+)
+
+:mamba_env_created
+set "ACTIVE_MAMBA_PY=%ACTIVE_MAMBA_ENV%\python.exe"
+if not exist "%ACTIVE_MAMBA_PY%" (
+  if exist "%ACTIVE_MAMBA_ENV%\Scripts\python.exe" set "ACTIVE_MAMBA_PY=%ACTIVE_MAMBA_ENV%\Scripts\python.exe"
+)
+
+if not exist "%ACTIVE_MAMBA_PY%" (
+  set "RC=1"
+  call :log "ERROR: micromamba env python not found."
+  goto :eof
+)
+
+set "MAMBA_ROOT_PREFIX=%ACTIVE_MAMBA_ROOT%"
+set "MAMBA_ENV_PREFIX=%ACTIVE_MAMBA_ENV%"
+set "MAMBA_ENV_PY=%ACTIVE_MAMBA_PY%"
+
+call :check_occ "%MAMBA_ENV_PY%"
+if not "!BREP_IMPORT_OK!"=="1" (
+  set "RC=1"
+  call :log "ERROR: micromamba env created but OCC import failed."
+  goto :eof
+)
+
+call :ensure_mamba_env_pip
+if not "!RC!"=="0" (
+  call :log "ERROR: pip is unavailable in micromamba runtime."
+  goto :eof
+)
+
+call :log "CMD START: \"%MAMBA_ENV_PY%\" -m pip install --upgrade pip setuptools wheel"
+"%MAMBA_ENV_PY%" -m pip install --upgrade pip setuptools wheel >>"%RUNTIME_LOG%" 2>&1
+set "RC=!ERRORLEVEL!"
+call :log "CMD END rc=!RC!"
+if not "!RC!"=="0" goto :eof
+
+call :log "CMD START: \"%MAMBA_ENV_PY%\" -m pip install -r requirements.txt"
+"%MAMBA_ENV_PY%" -m pip install -r requirements.txt >>"%RUNTIME_LOG%" 2>&1
+set "RC=!ERRORLEVEL!"
+call :log "CMD END rc=!RC!"
+if not "!RC!"=="0" goto :eof
+
+call :check_occ "%MAMBA_ENV_PY%"
+if "!BREP_IMPORT_OK!"=="1" (
+  set "RC=0"
+  set "USING_MAMBA_RUNTIME=1"
+  set "VENV_PY=%MAMBA_ENV_PY%"
+  call :log "INFO: Using micromamba runtime with OCC: %MAMBA_ENV_PY%"
+  goto :eof
+)
+
+set "RC=1"
+call :log "ERROR: OCC import failed after micromamba runtime provisioning."
+goto :eof
+
+:bootstrap_mamba_binary
+set "RC=0"
+if exist "%MAMBA_EXE%" goto :mamba_binary_check
+
+if not exist "%MAMBA_ROOT%" mkdir "%MAMBA_ROOT%"
+set "MAMBA_BOOTSTRAP_PS=%TMP%\bootstrap_micromamba.ps1"
+>"%MAMBA_BOOTSTRAP_PS%" echo $ErrorActionPreference = 'Stop'
+>>"%MAMBA_BOOTSTRAP_PS%" echo $url = 'https://github.com/mamba-org/micromamba-releases/releases/latest/download/micromamba-win-64'
+>>"%MAMBA_BOOTSTRAP_PS%" echo $exe = '%MAMBA_EXE%'
+>>"%MAMBA_BOOTSTRAP_PS%" echo New-Item -ItemType Directory -Force -Path ^(Split-Path $exe^) ^| Out-Null
+>>"%MAMBA_BOOTSTRAP_PS%" echo Invoke-WebRequest -Uri $url -OutFile $exe
+call :log "CMD START: powershell -NoProfile -ExecutionPolicy Bypass -File \"%MAMBA_BOOTSTRAP_PS%\""
+powershell -NoProfile -ExecutionPolicy Bypass -File "%MAMBA_BOOTSTRAP_PS%" >>"%RUNTIME_LOG%" 2>&1
+set "RC=%ERRORLEVEL%"
+call :log "CMD END rc=%RC%"
+if not "%RC%"=="0" (
+  call :log "ERROR: micromamba bootstrap failed."
+  goto :eof
+)
+
+:mamba_binary_check
+call :log "CMD START: \"%MAMBA_EXE%\" --version"
+"%MAMBA_EXE%" --version >>"%RUNTIME_LOG%" 2>&1
+set "RC=%ERRORLEVEL%"
+call :log "CMD END rc=%RC%"
+if not "%RC%"=="0" call :log "ERROR: micromamba binary check failed."
+goto :eof
+
+:create_mamba_occ_env
+set "RC=1"
+set "CREATE_ROOT=%~1"
+set "CREATE_ENV=%~2"
+if not defined CREATE_ROOT goto :eof
+if not defined CREATE_ENV goto :eof
+if not exist "%CREATE_ROOT%" mkdir "%CREATE_ROOT%"
+call :log "CMD START: \"%MAMBA_EXE%\" create -y -r \"%CREATE_ROOT%\" -p \"%CREATE_ENV%\" -c conda-forge python=3.12 pythonocc-core pip"
+"%MAMBA_EXE%" create -y -r "%CREATE_ROOT%" -p "%CREATE_ENV%" -c conda-forge python=3.12 pythonocc-core pip >>"%RUNTIME_LOG%" 2>&1
+set "RC=%ERRORLEVEL%"
+call :log "CMD END rc=%RC%"
+goto :eof
+
+:ensure_mamba_env_pip
+set "RC=1"
+call :log "CMD START: \"%MAMBA_ENV_PY%\" -m pip --version"
+"%MAMBA_ENV_PY%" -m pip --version >>"%RUNTIME_LOG%" 2>&1
+set "RC=!ERRORLEVEL!"
+call :log "CMD END rc=!RC!"
+if "!RC!"=="0" goto :eof
+
+call :log "WARN: pip is missing in micromamba env; installing pip package."
+call :log "CMD START: \"%MAMBA_EXE%\" install -y -r \"%MAMBA_ROOT_PREFIX%\" -p \"%MAMBA_ENV_PREFIX%\" -c conda-forge pip python=3.12"
+"%MAMBA_EXE%" install -y -r "%MAMBA_ROOT_PREFIX%" -p "%MAMBA_ENV_PREFIX%" -c conda-forge pip python=3.12 >>"%RUNTIME_LOG%" 2>&1
+set "RC=!ERRORLEVEL!"
+call :log "CMD END rc=!RC!"
+if not "!RC!"=="0" goto :eof
+
+call :log "CMD START: \"%MAMBA_ENV_PY%\" -m pip --version"
+"%MAMBA_ENV_PY%" -m pip --version >>"%RUNTIME_LOG%" 2>&1
+set "RC=!ERRORLEVEL!"
+call :log "CMD END rc=!RC!"
+if "!RC!"=="0" goto :eof
+
+call :log "CMD START: \"%MAMBA_ENV_PY%\" -m ensurepip --upgrade"
+"%MAMBA_ENV_PY%" -m ensurepip --upgrade >>"%RUNTIME_LOG%" 2>&1
+set "RC=!ERRORLEVEL!"
+call :log "CMD END rc=!RC!"
+if not "!RC!"=="0" goto :eof
+
+call :log "CMD START: \"%MAMBA_ENV_PY%\" -m pip --version"
+"%MAMBA_ENV_PY%" -m pip --version >>"%RUNTIME_LOG%" 2>&1
+set "RC=!ERRORLEVEL!"
+call :log "CMD END rc=!RC!"
+goto :eof
+
+:cleanup_mamba_prefix
+set "CLEAN_ROOT=%~1"
+set "CLEAN_ENV=%~2"
+if not defined CLEAN_ROOT set "CLEAN_ROOT=%MAMBA_ROOT_PREFIX%"
+if not defined CLEAN_ENV set "CLEAN_ENV=%MAMBA_ENV_PREFIX%"
+set "MAMBA_CLEAN_PS=%TMP%\cleanup_mamba.ps1"
+>"%MAMBA_CLEAN_PS%" echo $ErrorActionPreference = 'Continue'
+>>"%MAMBA_CLEAN_PS%" echo $paths = @('%CLEAN_ENV%', '%CLEAN_ROOT%\pkgs')
+>>"%MAMBA_CLEAN_PS%" echo foreach ^($p in $paths^) { if ^(Test-Path $p^) { Remove-Item $p -Recurse -Force -ErrorAction Continue } }
+call :log "CMD START: powershell -NoProfile -ExecutionPolicy Bypass -File \"%MAMBA_CLEAN_PS%\""
+powershell -NoProfile -ExecutionPolicy Bypass -File "%MAMBA_CLEAN_PS%" >>"%RUNTIME_LOG%" 2>&1
+set "RC=!ERRORLEVEL!"
+call :log "CMD END rc=!RC!"
 goto :eof
 
 :accept_python_312
