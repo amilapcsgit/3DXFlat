@@ -912,6 +912,7 @@ class RibbonMainWindow(QMainWindow):
         self.setCentralWidget(central)
         self._apply_selection_mode()
         self._on_seam_state_changed({"active_edge": None, "anchor_edge": None, "cut_edges": []})
+        self.flatten_panel.set_pick_mode("edge")
         self.flatten_panel.set_precision_value(int(self.seam_slider.value()))
         self._update_workflow_enablement()
 
@@ -937,6 +938,7 @@ class RibbonMainWindow(QMainWindow):
         self.flatten_panel.requestClearCuts.connect(self._on_clear_cuts_clicked)
         self.flatten_panel.requestAutoGuessAnchor.connect(self._on_auto_guess_anchor_clicked)
         self.flatten_panel.precisionChanged.connect(self._on_panel_precision_changed)
+        self.flatten_panel.pickModeChanged.connect(self._on_panel_pick_mode_changed)
 
         self.units_combo.currentTextChanged.connect(self._update_dimension_label_only)
         self.technical_mode_btn.toggled.connect(self.viewport.set_technical_mode)
@@ -1066,13 +1068,18 @@ class RibbonMainWindow(QMainWindow):
             self.flatten_panel.set_guidance_text(
                 "Cut/Seam: passa vicino al bordo per evidenziare.\n"
                 "Click = taglio di scarico.\n"
-                "Shift+Click = bordo anchor."
+                "Shift+Click = bordo anchor.\n"
+                "Modalita bordo: Edge/Chain dal pannello."
             )
         else:
             self.viewport.set_selection_mode("off")
 
     def _on_seam_state_changed(self, payload: Dict | object) -> None:
         info = payload if isinstance(payload, dict) else {}
+        model_type = str(info.get("model_type", self.loaded_model_type)).strip().lower()
+        pick_mode = str(info.get("brep_pick_mode", "edge")).strip().lower()
+        if model_type == "brep":
+            self.flatten_panel.set_pick_mode("chain" if pick_mode == "chain" else "edge")
         active = info.get("hover_edge") or info.get("active_edge")
         anchor = info.get("anchor_edge")
         cuts = info.get("cut_edges") or []
@@ -1184,6 +1191,14 @@ class RibbonMainWindow(QMainWindow):
         self.seam_slider.setValue(ivalue)
         self.seam_slider.blockSignals(False)
         self._on_seam_slider_changed(ivalue)
+
+    def _on_panel_pick_mode_changed(self, mode: str) -> None:
+        normalized = str(mode).strip().lower()
+        self.viewport.set_brep_pick_mode(normalized)
+        if normalized == "chain":
+            self.statusBar().showMessage("B-Rep seam selection: Chain mode.", 1800)
+        else:
+            self.statusBar().showMessage("B-Rep seam selection: Edge mode.", 1800)
 
     def _on_isolate_toggled(self, checked: bool) -> None:
         self.viewport.set_isolate_mode(checked)

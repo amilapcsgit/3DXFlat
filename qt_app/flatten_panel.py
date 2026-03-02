@@ -4,6 +4,7 @@ from typing import Dict, Iterable, Sequence, Tuple
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QFrame,
     QGroupBox,
     QHBoxLayout,
@@ -12,6 +13,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QRadioButton,
     QSlider,
     QVBoxLayout,
     QWidget,
@@ -33,6 +35,7 @@ class FlattenPanelWidget(QWidget):
     requestClearCuts = Signal()
     requestAutoGuessAnchor = Signal()
     precisionChanged = Signal(int)
+    pickModeChanged = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -74,6 +77,19 @@ class FlattenPanelWidget(QWidget):
         anchor_btn_row.addWidget(self.btn_auto_anchor)
         anchor_layout.addLayout(anchor_btn_row)
         root.addWidget(self.group_anchor)
+
+        self.group_pick_mode = QGroupBox("Modalita selezione bordo", self)
+        pick_mode_layout = QVBoxLayout(self.group_pick_mode)
+        pick_mode_layout.setContentsMargins(tokens.SPACE_S, tokens.SPACE_S, tokens.SPACE_S, tokens.SPACE_S)
+        self.pick_mode_group = QButtonGroup(self.group_pick_mode)
+        self.radio_pick_edge = QRadioButton("Edge Mode (segmento)", self.group_pick_mode)
+        self.radio_pick_chain = QRadioButton("Chain Mode (tangente)", self.group_pick_mode)
+        self.radio_pick_edge.setChecked(True)
+        self.pick_mode_group.addButton(self.radio_pick_edge)
+        self.pick_mode_group.addButton(self.radio_pick_chain)
+        pick_mode_layout.addWidget(self.radio_pick_edge)
+        pick_mode_layout.addWidget(self.radio_pick_chain)
+        root.addWidget(self.group_pick_mode)
 
         self.group_cuts = QGroupBox("Tagli di scarico (Relief cuts)", self)
         cuts_layout = QVBoxLayout(self.group_cuts)
@@ -135,6 +151,7 @@ class FlattenPanelWidget(QWidget):
         self.btn_auto_anchor.clicked.connect(self.requestAutoGuessAnchor.emit)
         self.btn_remove_selected.clicked.connect(self._emit_remove_selected)
         self.precision_slider.valueChanged.connect(self._on_precision_changed)
+        self.radio_pick_edge.toggled.connect(self._on_pick_mode_changed)
 
     def _make_separator(self) -> QWidget:
         sep = QFrame(self.group_status)
@@ -153,6 +170,12 @@ class FlattenPanelWidget(QWidget):
         self.precision_label.setText(f"Precisione: {int(value)}")
         self.precisionChanged.emit(int(value))
 
+    def _on_pick_mode_changed(self, checked: bool) -> None:
+        if not checked:
+            return
+        mode = "edge" if self.radio_pick_edge.isChecked() else "chain"
+        self.pickModeChanged.emit(mode)
+
     def set_precision_value(self, value: int) -> None:
         ivalue = int(value)
         self.precision_slider.blockSignals(True)
@@ -162,6 +185,13 @@ class FlattenPanelWidget(QWidget):
 
     def set_faces_count(self, count: int) -> None:
         self.faces_count_label.setText(f"Facce selezionate: {int(count)}")
+
+    def set_pick_mode(self, mode: str) -> None:
+        normalized = str(mode).strip().lower()
+        if normalized == "chain":
+            self.radio_pick_chain.setChecked(True)
+        else:
+            self.radio_pick_edge.setChecked(True)
 
     def set_anchor_edge(self, edge: Sequence[int] | None, label: str | None = None) -> None:
         if edge is None:

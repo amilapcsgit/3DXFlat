@@ -216,14 +216,57 @@ def _point_key3(point: Sequence[float], tol: float) -> Tuple[int, int, int]:
     )
 
 
+def _normalized_direction(vec: np.ndarray) -> np.ndarray | None:
+    arr = np.asarray(vec, dtype=np.float64).reshape(-1)
+    if arr.size != 3:
+        return None
+    n = float(np.linalg.norm(arr))
+    if n <= 1e-12:
+        return None
+    return arr / n
+
+
+def _polyline_endpoint_tangent(polyline: np.ndarray, *, at_start: bool) -> np.ndarray | None:
+    poly = np.asarray(polyline, dtype=np.float64)
+    if poly.ndim != 2 or poly.shape[1] != 3 or len(poly) < 2:
+        return None
+    if at_start:
+        origin = np.asarray(poly[0], dtype=np.float64)
+        for i in range(1, len(poly)):
+            d = np.asarray(poly[i], dtype=np.float64) - origin
+            out = _normalized_direction(d)
+            if out is not None:
+                return out
+        return None
+    origin = np.asarray(poly[-1], dtype=np.float64)
+    for i in range(len(poly) - 2, -1, -1):
+        d = np.asarray(poly[i], dtype=np.float64) - origin
+        out = _normalized_direction(d)
+        if out is not None:
+            return out
+    return None
+
+
+def _tangent_continuity_ok(dir_a: np.ndarray | None, dir_b: np.ndarray | None, *, max_axis_angle_deg: float) -> bool:
+    if dir_a is None or dir_b is None:
+        return False
+    dot = float(np.clip(np.dot(dir_a, dir_b), -1.0, 1.0))
+    # Compare unoriented tangent axes (0 deg and 180 deg both considered continuous).
+    axis_dot = abs(dot)
+    axis_cos_min = float(np.cos(np.radians(max(0.0, min(90.0, float(max_axis_angle_deg))))))
+    return axis_dot >= axis_cos_min
+
+
 def build_edge_chains(
     edge_ids: Iterable[int],
     edge_polylines: Dict[int, np.ndarray],
     *,
     endpoint_tol: float = 1e-5,
+    tangent_thresh_deg: float = 20.0,
 ) -> List[Tuple[int, ...]]:
     valid_edges: List[int] = []
     endpoints: Dict[int, Tuple[Tuple[int, int, int], Tuple[int, int, int]]] = {}
+    tangents: Dict[int, Tuple[np.ndarray | None, np.ndarray | None]] = {}
 
     for edge_id in sorted({int(x) for x in edge_ids}):
         poly = np.asarray(edge_polylines.get(int(edge_id), np.empty((0, 3))), dtype=np.float64)
@@ -232,18 +275,37 @@ def build_edge_chains(
         a = _point_key3(poly[0], endpoint_tol)
         b = _point_key3(poly[-1], endpoint_tol)
         endpoints[int(edge_id)] = (a, b)
+        tangents[int(edge_id)] = (
+            _polyline_endpoint_tangent(poly, at_start=True),
+            _polyline_endpoint_tangent(poly, at_start=False),
+        )
         valid_edges.append(int(edge_id))
 
     if not valid_edges:
         return []
 
-    vertex_to_edges: Dict[Tuple[int, int, int], List[int]] = defaultdict(list)
+    vertex_to_incidence: Dict[Tuple[int, int, int], List[Tuple[int, int]]] = defaultdict(list)
     edge_to_vertices: Dict[int, Tuple[Tuple[int, int, int], Tuple[int, int, int]]] = {}
     for edge_id in valid_edges:
         v0, v1 = endpoints[edge_id]
         edge_to_vertices[edge_id] = (v0, v1)
-        vertex_to_edges[v0].append(edge_id)
-        vertex_to_edges[v1].append(edge_id)
+        vertex_to_incidence[v0].append((edge_id, 0))
+        vertex_to_incidence[v1].append((edge_id, 1))
+
+    # Tangent-continuity graph over edges.
+    edge_graph: Dict[int, set[int]] = {int(e): set() for e in valid_edges}
+    for linked in vertex_to_incidence.values():
+        if len(linked) < 2:
+            continue
+        for i in range(len(linked)):
+            ea, enda = linked[i]
+            da = tangents.get(int(ea), (None, None))[int(enda)]
+            for j in range(i + 1, len(linked)):
+                eb, endb = linked[j]
+                db = tangents.get(int(eb), (None, None))[int(endb)]
+                if _tangent_continuity_ok(da, db, max_axis_angle_deg=tangent_thresh_deg):
+                    edge_graph[int(ea)].add(int(eb))
+                    edge_graph[int(eb)].add(int(ea))
 
     # Connected components over edges.
     comps: List[List[int]] = []
@@ -256,12 +318,10 @@ def build_edge_chains(
         while stack:
             cur = stack.pop()
             comp.append(cur)
-            v0, v1 = edge_to_vertices[cur]
-            for v in (v0, v1):
-                for nb in vertex_to_edges[v]:
-                    if nb in unseen:
-                        unseen.discard(nb)
-                        stack.append(nb)
+            for nb in sorted(edge_graph.get(int(cur), ())):
+                if nb in unseen:
+                    unseen.discard(nb)
+                    stack.append(nb)
         comps.append(sorted(comp))
 
     chains: List[Tuple[int, ...]] = []
@@ -380,3 +440,38 @@ def screen_space_pick_polyline_chain(
     if best_chain is None or best_dist > tol_sq:
         return None
     return best_chain
+
+
+def screen_space_pick_polyline_edge(
+    mouse_xy: Sequence[float],
+    edge_ids: Iterable[int],
+    edge_polylines: Dict[int, np.ndarray],
+    viewproj: np.ndarray,
+    viewport_w: int,
+    viewport_h: int,
+    px_tol: float,
+) -> int | None:
+    p = np.asarray([float(mouse_xy[0]), float(mouse_xy[1])], dtype=np.float64)
+    tol_sq = float(px_tol) * float(px_tol)
+    best_edge: int | None = None
+    best_dist = float("inf")
+
+    for edge_id in sorted({int(x) for x in edge_ids}):
+        poly = np.asarray(edge_polylines.get(int(edge_id), np.empty((0, 3))), dtype=np.float64)
+        if poly.ndim != 2 or poly.shape[1] != 3 or len(poly) < 2:
+            continue
+        screen, valid = _project_xyz_to_screen(poly, viewproj, viewport_w, viewport_h)
+        local_best = float("inf")
+        for i in range(len(screen) - 1):
+            if not (bool(valid[i]) and bool(valid[i + 1])):
+                continue
+            d = _point_to_segment_distance_sq(p, screen[i], screen[i + 1])
+            if d < local_best:
+                local_best = d
+        if local_best < best_dist:
+            best_dist = local_best
+            best_edge = int(edge_id)
+
+    if best_edge is None or best_dist > tol_sq:
+        return None
+    return int(best_edge)

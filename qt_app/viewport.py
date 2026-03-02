@@ -310,14 +310,18 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.cut_edges: Set[Tuple[int, int]] = set()
         self._hover_brep_chain: Tuple[int, ...] | None = None
         self._active_brep_chain: Tuple[int, ...] | None = None
+        self._hover_brep_edge_id: int | None = None
+        self._active_brep_edge_id: int | None = None
         self._anchor_brep_chain: Tuple[int, ...] | None = None
         self._cut_brep_chains: Set[Tuple[int, ...]] = set()
         self._brep_boundary_edge_ids: Set[int] = set()
         self._brep_boundary_chains: List[Tuple[int, ...]] = []
+        self._brep_edge_to_chain: Dict[int, Tuple[int, ...]] = {}
         self._brep_edge_to_mesh_edges: Dict[int, List[Tuple[int, int]]] = {}
         self._brep_cut_display_edges: List[Tuple[int, int]] = []
         self._brep_anchor_display_edge: Tuple[int, int] | None = None
         self._brep_display_edge_to_chain: Dict[Tuple[int, int], Tuple[int, ...]] = {}
+        self._brep_pick_mode = "edge"
         self._seam_candidate_edges: List[Tuple[int, int]] = []
         self._seam_boundary_edge_set: Set[Tuple[int, int]] = set()
         self._seam_pick_strategy = "triangle"
@@ -1287,10 +1291,13 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.cut_edges.clear()
         self._hover_brep_chain = None
         self._active_brep_chain = None
+        self._hover_brep_edge_id = None
+        self._active_brep_edge_id = None
         self._anchor_brep_chain = None
         self._cut_brep_chains.clear()
         self._brep_boundary_edge_ids.clear()
         self._brep_boundary_chains = []
+        self._brep_edge_to_chain = {}
         self._brep_edge_to_mesh_edges = {}
         self._brep_cut_display_edges = []
         self._brep_anchor_display_edge = None
@@ -1399,10 +1406,13 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.cut_edges.clear()
         self._hover_brep_chain = None
         self._active_brep_chain = None
+        self._hover_brep_edge_id = None
+        self._active_brep_edge_id = None
         self._anchor_brep_chain = None
         self._cut_brep_chains.clear()
         self._brep_boundary_edge_ids.clear()
         self._brep_boundary_chains = []
+        self._brep_edge_to_chain = {}
         self._brep_edge_to_mesh_edges = {}
         self._brep_cut_display_edges = []
         self._brep_anchor_display_edge = None
@@ -1530,6 +1540,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.selection_mode = mode
         if self.selection_mode != "cut":
             self._hover_brep_chain = None
+            self._hover_brep_edge_id = None
             if self._hover_edge is not None:
                 self._hover_edge = None
                 self._update_seam_overlays()
@@ -1538,6 +1549,22 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             self._recompute_seam_candidates()
             self._update_seam_overlays()
             self._emit_seam_state_changed()
+
+    def set_brep_pick_mode(self, mode: str) -> None:
+        normalized = str(mode).strip().lower()
+        if normalized not in {"edge", "chain"}:
+            normalized = "edge"
+        if normalized == self._brep_pick_mode:
+            return
+        self._brep_pick_mode = normalized
+        self._hover_brep_chain = None
+        self._active_brep_chain = None
+        self._hover_brep_edge_id = None
+        self._active_brep_edge_id = None
+        self._active_edge_pick = None
+        self._recompute_seam_candidates()
+        self._update_seam_overlays()
+        self._emit_seam_state_changed()
 
     def clear_selection(self) -> None:
         if not self.selected_faces:
@@ -1618,6 +1645,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             self._anchor_brep_chain = None
             self._active_brep_chain = None
             self._hover_brep_chain = None
+            self._active_brep_edge_id = None
+            self._hover_brep_edge_id = None
             self.cut_edges.clear()
             self.anchor_edge = None
             self._active_edge_pick = None
@@ -1933,6 +1962,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.seamStateChanged.emit(
             {
                 "model_type": self.model_type,
+                "brep_pick_mode": self._brep_pick_mode,
                 "active_edge": active_payload,
                 "hover_edge": None if self._hover_edge is None else tuple(self._hover_edge),
                 "anchor_edge": anchor_payload,
@@ -2513,11 +2543,13 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._seam_boundary_edge_set.clear()
         self._brep_boundary_edge_ids.clear()
         self._brep_boundary_chains = []
+        self._brep_edge_to_chain = {}
         self._seam_pick_strategy = "triangle"
 
         if self.pick_faces is None or self.vertices is None:
             self._hover_edge = None
             self._hover_brep_chain = None
+            self._hover_brep_edge_id = None
             return
 
         if self._brep_selection_enabled() and self.selected_faces:
@@ -2530,27 +2562,47 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             boundary_edge_ids = sorted([eid for eid, count in edge_counts.items() if count == 1])
             self._brep_boundary_edge_ids = set(boundary_edge_ids)
             try:
-                chains = edge_selection.build_edge_chains(boundary_edge_ids, self._brep_edge_polylines)
+                chains = edge_selection.build_edge_chains(
+                    boundary_edge_ids,
+                    self._brep_edge_polylines,
+                    tangent_thresh_deg=20.0,
+                )
             except Exception:
                 chains = []
             self._brep_boundary_chains = [tuple(int(x) for x in chain) for chain in chains if chain]
+            edge_to_chain: Dict[int, Tuple[int, ...]] = {}
+            for chain in self._brep_boundary_chains:
+                for edge_id in chain:
+                    edge_to_chain[int(edge_id)] = tuple(chain)
+            self._brep_edge_to_chain = edge_to_chain
 
-            chain_set = set(self._brep_boundary_chains)
-            if self._anchor_brep_chain is not None and tuple(self._anchor_brep_chain) not in chain_set:
+            valid_units: set[Tuple[int, ...]] = set(self._brep_boundary_chains)
+            valid_units.update((int(eid),) for eid in boundary_edge_ids)
+            if self._anchor_brep_chain is not None and tuple(self._anchor_brep_chain) not in valid_units:
                 self._anchor_brep_chain = None
-            self._cut_brep_chains = {tuple(ch) for ch in self._cut_brep_chains if tuple(ch) in chain_set}
-            if self._hover_brep_chain is not None and tuple(self._hover_brep_chain) not in chain_set:
+            self._cut_brep_chains = {tuple(ch) for ch in self._cut_brep_chains if tuple(ch) in valid_units}
+            if self._hover_brep_chain is not None and tuple(self._hover_brep_chain) not in valid_units:
                 self._hover_brep_chain = None
-            if self._active_brep_chain is not None and tuple(self._active_brep_chain) not in chain_set:
+            if self._active_brep_chain is not None and tuple(self._active_brep_chain) not in valid_units:
                 self._active_brep_chain = None
+            if self._hover_brep_edge_id is not None and int(self._hover_brep_edge_id) not in self._brep_boundary_edge_ids:
+                self._hover_brep_edge_id = None
+            if self._active_brep_edge_id is not None and int(self._active_brep_edge_id) not in self._brep_boundary_edge_ids:
+                self._active_brep_edge_id = None
 
             mesh_boundary_edges: set[Tuple[int, int]] = set()
-            for chain in self._brep_boundary_chains:
-                for e in self._brep_chain_mesh_edges(chain):
+            for edge_id in boundary_edge_ids:
+                for e in self._brep_chain_mesh_edges((int(edge_id),)):
                     mesh_boundary_edges.add(self._normalized_edge(e))
             self._seam_boundary_edge_set = set(mesh_boundary_edges)
             self._seam_candidate_edges = sorted(mesh_boundary_edges)
-            self._seam_pick_strategy = "brep-chain" if self._brep_boundary_chains else "triangle"
+            if self._brep_boundary_edge_ids:
+                if self._brep_pick_mode == "chain" and self._brep_boundary_chains:
+                    self._seam_pick_strategy = "brep-chain"
+                else:
+                    self._seam_pick_strategy = "brep-edge"
+            else:
+                self._seam_pick_strategy = "triangle"
             self._sync_brep_chain_edge_state()
             if self._hover_edge is not None and self._seam_candidate_edges:
                 if self._hover_edge not in set(self._seam_candidate_edges):
@@ -2560,6 +2612,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         # No active B-Rep face patch: clear chain state and use existing mesh heuristics.
         self._hover_brep_chain = None
         self._active_brep_chain = None
+        self._hover_brep_edge_id = None
+        self._active_brep_edge_id = None
         self._anchor_brep_chain = None
         self._cut_brep_chains.clear()
         self.cut_edges.clear()
@@ -2567,6 +2621,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._brep_cut_display_edges = []
         self._brep_anchor_display_edge = None
         self._brep_display_edge_to_chain = {}
+        self._brep_edge_to_chain = {}
 
         selected_pick_idx = self._selected_pick_face_indices()
         if len(selected_pick_idx):
@@ -2607,13 +2662,13 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         prev_chain = self._hover_brep_chain
         hovered = None
 
-        if self._seam_pick_strategy == "brep-chain" and self._brep_boundary_chains:
+        if self._seam_pick_strategy in {"brep-edge", "brep-chain"} and self._brep_boundary_edge_ids:
             viewproj = self._viewproj_matrix_np()
             if viewproj is not None:
                 try:
-                    chain = edge_selection.screen_space_pick_polyline_chain(
+                    picked_edge_id = edge_selection.screen_space_pick_polyline_edge(
                         mouse_xy=(sx, sy),
-                        chains=self._brep_boundary_chains,
+                        edge_ids=sorted(self._brep_boundary_edge_ids),
                         edge_polylines=self._brep_edge_polylines,
                         viewproj=viewproj,
                         viewport_w=int(self.width()),
@@ -2621,13 +2676,20 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                         px_tol=self._seam_pick_px_tol,
                     )
                 except Exception:
-                    chain = None
-                if chain is not None:
-                    norm_chain = tuple(int(x) for x in chain)
+                    picked_edge_id = None
+                if picked_edge_id is not None:
+                    edge_id = int(picked_edge_id)
+                    self._hover_brep_edge_id = edge_id
+                    self._active_brep_edge_id = edge_id
+                    if self._seam_pick_strategy == "brep-chain":
+                        norm_chain = tuple(self._brep_edge_to_chain.get(edge_id, (edge_id,)))
+                    else:
+                        norm_chain = (edge_id,)
                     self._hover_brep_chain = norm_chain
-                    hovered = self._brep_chain_representative_edge(norm_chain)
                     self._active_brep_chain = norm_chain
+                    hovered = self._brep_chain_representative_edge(norm_chain)
                 else:
+                    self._hover_brep_edge_id = None
                     self._hover_brep_chain = None
         elif self._seam_pick_strategy == "screen" and self._seam_candidate_edges:
             viewproj = self._viewproj_matrix_np()
@@ -2646,16 +2708,19 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                     hovered = None
 
         if hovered is None:
-            hit = self._raycast_face_hit(sx, sy)
-            if hit is not None:
-                face_id, hit_point = hit
-                candidate = self._nearest_edge_on_face(int(face_id), hit_point)
-                selected_pick_idx = self._selected_pick_face_indices()
-                if self._seam_boundary_edge_set and len(selected_pick_idx) > 0 and candidate not in self._seam_boundary_edge_set:
-                    hovered = None
-                else:
-                    hovered = candidate
+            has_brep_boundary = bool(self.model_type == "brep" and self._brep_boundary_edge_ids)
+            if not has_brep_boundary:
+                hit = self._raycast_face_hit(sx, sy)
+                if hit is not None:
+                    face_id, hit_point = hit
+                    candidate = self._nearest_edge_on_face(int(face_id), hit_point)
+                    selected_pick_idx = self._selected_pick_face_indices()
+                    if self._seam_boundary_edge_set and len(selected_pick_idx) > 0 and candidate not in self._seam_boundary_edge_set:
+                        hovered = None
+                    else:
+                        hovered = candidate
             if self.model_type == "brep":
+                self._hover_brep_edge_id = None
                 self._hover_brep_chain = None
 
         self._hover_edge = None if hovered is None else self._normalized_edge(hovered)
