@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
+import sys
 from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
+
+_OCC_RUNTIME_READY = False
+_OCC_DLL_HANDLES: List[object] = []
 
 
 @dataclass
@@ -27,15 +32,70 @@ def is_brep_extension(path: str) -> bool:
     return ext in {".step", ".stp", ".iges", ".igs"}
 
 
+def _iter_occ_prefix_candidates() -> List[Path]:
+    candidates: List[Path] = []
+
+    def _push(value: str | None) -> None:
+        if not value:
+            return
+        p = Path(value).expanduser()
+        if p not in candidates:
+            candidates.append(p)
+
+    # Primary prefixes exported by launcher.
+    _push(os.environ.get("MAMBA_ENV_PREFIX"))
+    _push(os.environ.get("THREEDXFLAT_OCC_PREFIX"))
+
+    # Current local bootstrap defaults.
+    user_home = Path.home()
+    _push(str(user_home / "3DXF" / "e312"))
+    _push(str(user_home / "3DXF" / "e312b"))
+    _push(str(user_home / "AppData" / "Local" / "3DXFlat" / "micromamba-env-py312"))
+
+    return candidates
+
+
+def _ensure_occ_runtime() -> None:
+    global _OCC_RUNTIME_READY
+    if _OCC_RUNTIME_READY:
+        return
+
+    # The launcher keeps OCC package copies in a dedicated overlay path.
+    overlay = os.environ.get("OCC_OVERLAY_SITE")
+    if overlay:
+        overlay_path = str(Path(overlay).expanduser())
+        if overlay_path and overlay_path not in sys.path:
+            sys.path.insert(0, overlay_path)
+
+    if os.name == "nt" and hasattr(os, "add_dll_directory"):
+        for prefix in _iter_occ_prefix_candidates():
+            for sub in ("Library/bin", "DLLs", "bin"):
+                dll_dir = prefix / sub
+                if not dll_dir.exists():
+                    continue
+                try:
+                    handle = os.add_dll_directory(str(dll_dir))
+                except Exception:
+                    continue
+                _OCC_DLL_HANDLES.append(handle)
+
+    _OCC_RUNTIME_READY = True
+
+
 def is_occ_available() -> Tuple[bool, str | None]:
+    _ensure_occ_runtime()
     try:
-        import OCC.Core  # type: ignore  # noqa: F401
+        # Validate with real STEP/IGES modules, not just OCC.Core package import.
+        from OCC.Core.IFSelect import IFSelect_RetDone  # type: ignore  # noqa: F401
+        from OCC.Core.STEPControl import STEPControl_Reader  # type: ignore  # noqa: F401
+        from OCC.Core.IGESControl import IGESControl_Reader  # type: ignore  # noqa: F401
     except Exception as exc:
         return False, str(exc)
     return True, None
 
 
 def load_brep(path: str, *, deflection: float = 0.6, angle_rad: float = 0.35) -> BrepModel:
+    _ensure_occ_runtime()
     ok, reason = is_occ_available()
     if not ok:
         raise RuntimeError(
@@ -112,14 +172,14 @@ def _as_compound(shape):
 
 def _collect_topology(shape):
     from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FACE  # type: ignore
-    from OCC.Core.TopExp import TopExp, TopExp_Explorer  # type: ignore
+    from OCC.Core.TopExp import TopExp_Explorer, topexp_MapShapes  # type: ignore
     from OCC.Core.TopTools import TopTools_IndexedMapOfShape  # type: ignore
     from OCC.Core.TopoDS import topods  # type: ignore
 
     face_map = TopTools_IndexedMapOfShape()
     edge_map = TopTools_IndexedMapOfShape()
-    TopExp.MapShapes(shape, TopAbs_FACE, face_map)
-    TopExp.MapShapes(shape, TopAbs_EDGE, edge_map)
+    topexp_MapShapes(shape, TopAbs_FACE, face_map)
+    topexp_MapShapes(shape, TopAbs_EDGE, edge_map)
 
     faces: List[object] = []
     edges: List[object] = []
@@ -154,12 +214,22 @@ def _mesh_shape(shape, *, deflection: float, angle_rad: float) -> None:
         pass
 
 
-def _tri_nodes_and_indices(triangulation) -> Tuple[Sequence[object], List[Tuple[int, int, int]]]:
+def _tri_node(triangulation, index_1based: int):
+    if hasattr(triangulation, "Node"):
+        return triangulation.Node(int(index_1based))
     nodes = triangulation.Nodes()
-    tris = triangulation.Triangles()
+    return nodes.Value(int(index_1based))
+
+
+def _tri_indices(triangulation) -> List[Tuple[int, int, int]]:
     out_tris: List[Tuple[int, int, int]] = []
-    for i in range(int(triangulation.NbTriangles())):
-        tri = tris.Value(i + 1)
+    nb_tri = int(triangulation.NbTriangles())
+    for i in range(1, nb_tri + 1):
+        if hasattr(triangulation, "Triangle"):
+            tri = triangulation.Triangle(i)
+        else:
+            tris = triangulation.Triangles()
+            tri = tris.Value(i)
         if hasattr(tri, "Get"):
             a, b, c = tri.Get()
         else:
@@ -167,7 +237,7 @@ def _tri_nodes_and_indices(triangulation) -> Tuple[Sequence[object], List[Tuple[
             b = tri.Value(2)
             c = tri.Value(3)
         out_tris.append((int(a), int(b), int(c)))
-    return nodes, out_tris
+    return out_tris
 
 
 def _vertex_key(point: Sequence[float], *, tol: float) -> Tuple[int, int, int]:
@@ -193,17 +263,19 @@ def _extract_face_triangulation(faces, face_map, *, deflection: float):
     for face in faces:
         loc = TopLoc_Location()
         tri = BRep_Tool.Triangulation(face, loc)
-        if tri is None or bool(tri.IsNull()):
+        if tri is None:
+            continue
+        if hasattr(tri, "IsNull") and bool(tri.IsNull()):
             continue
         trsf = loc.Transformation()
-        nodes, tri_ids = _tri_nodes_and_indices(tri)
+        tri_ids = _tri_indices(tri)
         if not tri_ids:
             continue
 
         global_face_idx = int(face_map.FindIndex(face)) - 1
         local_to_global: Dict[int, int] = {}
-        for local_idx in range(int(tri.NbNodes())):
-            p = nodes.Value(local_idx + 1).Transformed(trsf)
+        for local_idx in range(1, int(tri.NbNodes()) + 1):
+            p = _tri_node(tri, local_idx).Transformed(trsf)
             xyz = np.array([float(p.X()), float(p.Y()), float(p.Z())], dtype=np.float64)
             key = _vertex_key(xyz, tol=tol)
             mapped = vkey_to_idx.get(key)
@@ -211,7 +283,7 @@ def _extract_face_triangulation(faces, face_map, *, deflection: float):
                 mapped = len(vertices)
                 vertices.append(xyz)
                 vkey_to_idx[key] = mapped
-            local_to_global[int(local_idx + 1)] = int(mapped)
+            local_to_global[int(local_idx)] = int(mapped)
 
         for a, b, c in tri_ids:
             ga = local_to_global.get(int(a))
