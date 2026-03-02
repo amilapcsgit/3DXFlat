@@ -1,6 +1,4 @@
 import os
-import tkinter as tk
-from tkinter import filedialog
 import heapq
 
 import numpy as np
@@ -318,6 +316,15 @@ def main(
     relief_threshold_pct=3.0,
 ):
     if path_input is None or not os.path.isfile(path_input):
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+        except Exception as exc:
+            raise RuntimeError(
+                "tkinter is required only for interactive file selection. "
+                "Pass `path_input` explicitly or install Python with tkinter support."
+            ) from exc
+
         root = tk.Tk()
         root.withdraw()
         path_input = filedialog.askopenfilename(

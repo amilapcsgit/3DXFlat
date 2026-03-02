@@ -16,7 +16,12 @@ def _set_windows_app_user_model_id() -> None:
 
 
 def run_tk_fallback() -> None:
-    from gui import FlattenApp
+    try:
+        from gui import FlattenApp
+    except Exception as exc:
+        raise RuntimeError(
+            "Tk fallback is unavailable. Install tkinter support or run Qt mode only."
+        ) from exc
 
     app = FlattenApp()
     app.mainloop()
@@ -42,8 +47,12 @@ def run_default_app() -> int:
             print(f"[3DXFlat] Qt launch failed in force mode: {exc}")
             return 1
         print(f"[3DXFlat] Qt launch failed, falling back to Tkinter: {exc}")
-        run_tk_fallback()
-        return 0
+        try:
+            run_tk_fallback()
+            return 0
+        except Exception as tk_exc:
+            print(f"[3DXFlat] Tk fallback failed: {tk_exc}")
+            return 1
 
 
 if __name__ == "__main__":

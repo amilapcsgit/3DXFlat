@@ -524,9 +524,22 @@ if defined PYTHONPATH (
   set "PYTHONPATH=%OCC_OVERLAY_SITE%"
 )
 
-set "PATH=%PATH%;%MAMBA_ENV_PREFIX%;%MAMBA_ENV_PREFIX%\Library\bin;%MAMBA_ENV_PREFIX%\DLLs;%MAMBA_ENV_PREFIX%\Scripts"
 set "OCC_OVERLAY_ENABLED=1"
-call :log "INFO: Enabled OCC overlay for app runtime: %OCC_OVERLAY_SITE%"
+call :check_occ "%VENV_PY%"
+if "!BREP_IMPORT_OK!"=="1" (
+  call :log "INFO: Enabled OCC overlay for app runtime (no DLL PATH injection): %OCC_OVERLAY_SITE%"
+  goto :eof
+)
+
+call :log "WARN: OCC import failed with package overlay only. Retrying with OCC DLL PATH injection."
+set "PATH=%PATH%;%MAMBA_ENV_PREFIX%;%MAMBA_ENV_PREFIX%\Library\bin;%MAMBA_ENV_PREFIX%\DLLs;%MAMBA_ENV_PREFIX%\Scripts"
+call :check_occ "%VENV_PY%"
+if "!BREP_IMPORT_OK!"=="1" (
+  call :log "INFO: Enabled OCC overlay with DLL PATH injection."
+  goto :eof
+)
+
+call :log "ERROR: OCC overlay could not be enabled for app runtime."
 goto :eof
 
 :prepare_occ_overlay
