@@ -281,7 +281,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._mesh_diffuse_color = tokens.MESH_DIFFUSE
         self._edge_color = tokens.EDGE
         self._apply_viewport_palette(self._viewport_theme)
-        self.setBackgroundColor(_rgba255(self._vp_bg_color, 1.0))
+        self._safe_set_background_color()
         self.setStyleSheet(
             """
             QOpenGLWidget#ThreeDViewportWidget {
@@ -682,6 +682,20 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             self._grid_major_alpha = 0.90
             self.wire_item.set_wire_line_width(1.2)
 
+    def _safe_set_background_color(self) -> None:
+        color = _rgba255(self._vp_bg_color, 1.0)
+        try:
+            self.setBackgroundColor(color)
+            return
+        except Exception as exc:
+            self._dbg_selection(f"_safe_set_background_color(): setBackgroundColor failed: {exc}")
+        # Fallback: set pyqtgraph option only. This keeps startup alive even when
+        # GL state/context is not ready for immediate glClearColor calls.
+        try:
+            self.opts["bgcolor"] = color
+        except Exception:
+            pass
+
     def _apply_viewport_palette(self, theme: str) -> None:
         if theme == "dark":
             self._vp_bg_color = tokens.BG_MAIN
@@ -712,7 +726,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._viewport_theme = normalized
         self._apply_viewport_palette(normalized)
         self._update_phase3_viewport_render_params()
-        self.setBackgroundColor(_rgba255(self._vp_bg_color, 1.0))
+        self._safe_set_background_color()
         if self.isValid():
             try:
                 self.makeCurrent()
