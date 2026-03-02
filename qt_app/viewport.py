@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from collections import deque
 import math
 import os
@@ -1437,6 +1436,65 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             return
         print(f"[DXF_DEBUG_SELECTION] {message}")
 
+    def _snapshot_selection_seam_state(self) -> Dict[str, object]:
+        return {
+            "selected_faces": set(self.selected_faces),
+            "anchor_edge": None if self.anchor_edge is None else tuple(self.anchor_edge),
+            "cut_edges": set(self.cut_edges),
+            "hover_edge": None if self._hover_edge is None else tuple(self._hover_edge),
+            "active_edge_pick": None if self._active_edge_pick is None else tuple(self._active_edge_pick),
+            "hover_brep_chain": None if self._hover_brep_chain is None else tuple(self._hover_brep_chain),
+            "active_brep_chain": None if self._active_brep_chain is None else tuple(self._active_brep_chain),
+            "anchor_brep_chain": None if self._anchor_brep_chain is None else tuple(self._anchor_brep_chain),
+            "cut_brep_chains": {tuple(ch) for ch in self._cut_brep_chains},
+            "hover_brep_edge_id": self._hover_brep_edge_id,
+            "active_brep_edge_id": self._active_brep_edge_id,
+            "brep_boundary_edge_ids": set(self._brep_boundary_edge_ids),
+            "brep_boundary_chains": [tuple(ch) for ch in self._brep_boundary_chains],
+            "brep_edge_to_chain": {int(k): tuple(v) for k, v in self._brep_edge_to_chain.items()},
+            "brep_edge_to_mesh_edges": {int(k): [tuple(e) for e in vals] for k, vals in self._brep_edge_to_mesh_edges.items()},
+            "brep_cut_display_edges": [tuple(e) for e in self._brep_cut_display_edges],
+            "brep_anchor_display_edge": None if self._brep_anchor_display_edge is None else tuple(self._brep_anchor_display_edge),
+            "brep_display_edge_to_chain": {tuple(k): tuple(v) for k, v in self._brep_display_edge_to_chain.items()},
+            "seam_candidate_edges": [tuple(e) for e in self._seam_candidate_edges],
+            "seam_boundary_edge_set": set(self._seam_boundary_edge_set),
+            "seam_pick_strategy": str(self._seam_pick_strategy),
+        }
+
+    def _restore_selection_seam_state(self, state: Dict[str, object], *, context: str) -> None:
+        self.selected_faces = set(state.get("selected_faces", set()))
+        self.anchor_edge = state.get("anchor_edge")
+        self.cut_edges = set(state.get("cut_edges", set()))
+        self._hover_edge = state.get("hover_edge")
+        self._active_edge_pick = state.get("active_edge_pick")
+        self._hover_brep_chain = state.get("hover_brep_chain")
+        self._active_brep_chain = state.get("active_brep_chain")
+        self._anchor_brep_chain = state.get("anchor_brep_chain")
+        self._cut_brep_chains = {tuple(ch) for ch in state.get("cut_brep_chains", set())}
+        self._hover_brep_edge_id = state.get("hover_brep_edge_id")
+        self._active_brep_edge_id = state.get("active_brep_edge_id")
+        self._brep_boundary_edge_ids = set(state.get("brep_boundary_edge_ids", set()))
+        self._brep_boundary_chains = [tuple(ch) for ch in state.get("brep_boundary_chains", [])]
+        self._brep_edge_to_chain = {int(k): tuple(v) for k, v in dict(state.get("brep_edge_to_chain", {})).items()}
+        self._brep_edge_to_mesh_edges = {
+            int(k): [self._normalized_edge(e) for e in vals]
+            for k, vals in dict(state.get("brep_edge_to_mesh_edges", {})).items()
+        }
+        self._brep_cut_display_edges = [self._normalized_edge(e) for e in state.get("brep_cut_display_edges", [])]
+        self._brep_anchor_display_edge = state.get("brep_anchor_display_edge")
+        self._brep_display_edge_to_chain = {
+            self._normalized_edge(k): tuple(v)
+            for k, v in dict(state.get("brep_display_edge_to_chain", {})).items()
+        }
+        self._seam_candidate_edges = [self._normalized_edge(e) for e in state.get("seam_candidate_edges", [])]
+        self._seam_boundary_edge_set = {self._normalized_edge(e) for e in state.get("seam_boundary_edge_set", set())}
+        self._seam_pick_strategy = str(state.get("seam_pick_strategy", self._seam_pick_strategy))
+        self._update_mesh_visuals()
+        self._update_seam_overlays()
+        self.facesSelected.emit(self.get_selected_faces())
+        self._emit_seam_state_changed()
+        self._dbg_selection(f"_restore_selection_seam_state({context}) | {self._debug_state_brief()}")
+
     def set_mesh(
         self,
         name: str,
@@ -1576,17 +1634,21 @@ class ThreeDViewportWidget(gl.GLViewWidget):
 
     def reset_camera(self) -> None:
         self._dbg_selection(f"reset_camera() | {self._debug_state_brief()}")
+        state_before = self._snapshot_selection_seam_state()
         if self.vertices is not None:
             self._reset_model_display_rotation()
             self._fit_camera_to_mesh()
         else:
             self.clear_view()
+        if self.vertices is not None:
+            self._restore_selection_seam_state(state_before, context="reset_camera")
         self._on_camera_event()
 
     def apply_view_preset(self, preset: str) -> None:
         self._dbg_selection(f"apply_view_preset({preset}) START | {self._debug_state_brief()}")
         if self.vertices is None:
             return
+        state_before = self._snapshot_selection_seam_state()
         mins = self.vertices.min(axis=0)
         maxs = self.vertices.max(axis=0)
         center = self._bbox_center(self.vertices)
@@ -1615,6 +1677,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.opts["fov"] = 40.0
         self._camera_up = up
         self.update()
+        self._restore_selection_seam_state(state_before, context=f"apply_view_preset:{preset}")
         self._on_camera_event()
         self._dbg_selection(f"apply_view_preset({preset}) END | {self._debug_state_brief()}")
 
