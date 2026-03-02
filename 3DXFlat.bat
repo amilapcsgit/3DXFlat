@@ -67,6 +67,8 @@ set "MAMBA_ROOT_PREFIX=%MAMBA_BASE%\r"
 set "MAMBA_ENV_PREFIX=%MAMBA_BASE%\e312"
 set "MAMBA_ENV_PY=%MAMBA_ENV_PREFIX%\python.exe"
 set "USING_MAMBA_RUNTIME=0"
+set "OCC_OVERLAY_ENABLED=0"
+set "OCC_OVERLAY_SITE=%LOCAL_BASE%\occ-overlay"
 if not exist "%LOCAL_BASE%" mkdir "%LOCAL_BASE%"
 if not exist "%PIP_CACHE_DIR%" mkdir "%PIP_CACHE_DIR%"
 if not exist "%TMP%" mkdir "%TMP%"
@@ -238,6 +240,16 @@ if exist "%OPTIONAL_BREP_REQ%" (
       pause
       exit /b 1
     )
+    call :enable_occ_overlay
+    set "BREP_IMPORT_OK=0"
+    call :check_occ "%VENV_PY%"
+    if not "!BREP_IMPORT_OK!"=="1" (
+      call :log "ERROR: OCC runtime is present but not importable from app venv."
+      echo ERROR: OpenCascade runtime was provisioned but cannot be imported by app Python.
+      echo        See runtime log: %RUNTIME_LOG%
+      pause
+      exit /b 1
+    )
   )
 ) else (
   call :log "ERROR: %OPTIONAL_BREP_REQ% not found."
@@ -348,7 +360,6 @@ if exist "%ACTIVE_MAMBA_PY%" (
     set "MAMBA_ENV_PREFIX=%ACTIVE_MAMBA_ENV%"
     set "MAMBA_ENV_PY=%ACTIVE_MAMBA_PY%"
     set "USING_MAMBA_RUNTIME=1"
-    set "VENV_PY=%ACTIVE_MAMBA_PY%"
     call :log "INFO: Reusing existing micromamba runtime with OCC."
     goto :eof
   )
@@ -395,30 +406,11 @@ if not "!BREP_IMPORT_OK!"=="1" (
   goto :eof
 )
 
-call :ensure_mamba_env_pip
-if not "!RC!"=="0" (
-  call :log "ERROR: pip is unavailable in micromamba runtime."
-  goto :eof
-)
-
-call :log "CMD START: \"%MAMBA_ENV_PY%\" -m pip install --upgrade pip setuptools wheel"
-"%MAMBA_ENV_PY%" -m pip install --upgrade pip setuptools wheel >>"%RUNTIME_LOG%" 2>&1
-set "RC=!ERRORLEVEL!"
-call :log "CMD END rc=!RC!"
-if not "!RC!"=="0" goto :eof
-
-call :log "CMD START: \"%MAMBA_ENV_PY%\" -m pip install -r requirements.txt"
-"%MAMBA_ENV_PY%" -m pip install -r requirements.txt >>"%RUNTIME_LOG%" 2>&1
-set "RC=!ERRORLEVEL!"
-call :log "CMD END rc=!RC!"
-if not "!RC!"=="0" goto :eof
-
 call :check_occ "%MAMBA_ENV_PY%"
 if "!BREP_IMPORT_OK!"=="1" (
   set "RC=0"
   set "USING_MAMBA_RUNTIME=1"
-  set "VENV_PY=%MAMBA_ENV_PY%"
-  call :log "INFO: Using micromamba runtime with OCC: %MAMBA_ENV_PY%"
+  call :log "INFO: OCC runtime available from micromamba env: %MAMBA_ENV_PY%"
   goto :eof
 )
 
@@ -513,6 +505,50 @@ call :log "CMD START: powershell -NoProfile -ExecutionPolicy Bypass -File \"%MAM
 powershell -NoProfile -ExecutionPolicy Bypass -File "%MAMBA_CLEAN_PS%" >>"%RUNTIME_LOG%" 2>&1
 set "RC=!ERRORLEVEL!"
 call :log "CMD END rc=!RC!"
+goto :eof
+
+:enable_occ_overlay
+if not "%USING_MAMBA_RUNTIME%"=="1" goto :eof
+if "%OCC_OVERLAY_ENABLED%"=="1" goto :eof
+if not defined MAMBA_ENV_PREFIX goto :eof
+
+call :prepare_occ_overlay
+if not "%RC%"=="0" (
+  call :log "ERROR: Failed to prepare OCC overlay package path."
+  goto :eof
+)
+
+if defined PYTHONPATH (
+  set "PYTHONPATH=%OCC_OVERLAY_SITE%;%PYTHONPATH%"
+) else (
+  set "PYTHONPATH=%OCC_OVERLAY_SITE%"
+)
+
+set "PATH=%PATH%;%MAMBA_ENV_PREFIX%;%MAMBA_ENV_PREFIX%\Library\bin;%MAMBA_ENV_PREFIX%\DLLs;%MAMBA_ENV_PREFIX%\Scripts"
+set "OCC_OVERLAY_ENABLED=1"
+call :log "INFO: Enabled OCC overlay for app runtime: %OCC_OVERLAY_SITE%"
+goto :eof
+
+:prepare_occ_overlay
+set "RC=1"
+if not defined MAMBA_ENV_PREFIX goto :eof
+set "OCC_SRC=%MAMBA_ENV_PREFIX%\Lib\site-packages\OCC"
+if not exist "%OCC_SRC%" (
+  call :log "ERROR: OCC source package path not found: %OCC_SRC%"
+  goto :eof
+)
+if not exist "%OCC_OVERLAY_SITE%" mkdir "%OCC_OVERLAY_SITE%"
+if not exist "%OCC_OVERLAY_SITE%\OCC" mkdir "%OCC_OVERLAY_SITE%\OCC"
+
+call :log "CMD START: robocopy \"%OCC_SRC%\" \"%OCC_OVERLAY_SITE%\OCC\" /E"
+robocopy "%OCC_SRC%" "%OCC_OVERLAY_SITE%\OCC" /E /NFL /NDL /NJH /NJS /NC /NS >nul
+set "RC=%ERRORLEVEL%"
+call :log "CMD END rc=%RC%"
+if !RC! GEQ 8 (
+  set "RC=1"
+  goto :eof
+)
+set "RC=0"
 goto :eof
 
 :accept_python_312
