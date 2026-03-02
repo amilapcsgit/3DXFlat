@@ -1716,6 +1716,7 @@ class RibbonMainWindow(QMainWindow):
     def _on_seam_slider_changed(self, value: int) -> None:
         self.seam_label.setText(f"Seam [{value}] mm")
         self.flatten_panel.set_precision_value(int(value))
+        self.viewport.mark_seam_candidates_dirty("precision_changed")
         self._seam_debounce.start()
 
     def _apply_seam_to_preview(self) -> None:

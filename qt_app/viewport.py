@@ -333,6 +333,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._seam_pick_px_tol = 10.0
         self._seam_feature_angle_deg = 42.0
         self._seam_screen_pick_edge_cap = 24000
+        self._seam_candidates_dirty = True
+        self._seam_candidates_dirty_reason = "init"
         self._feature_edge_cache_token: Tuple[int, int, float] | None = None
         self._feature_edges_global: List[Tuple[int, int]] = []
 
@@ -986,7 +988,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                 if hit is None:
                     if not ctrl and not alt:
                         self.selected_faces.clear()
-                        self._recompute_seam_candidates()
+                        self._mark_seam_candidates_dirty("selection_changed:hit_none_clear")
+                        self._ensure_seam_candidates("mouseRelease:selection_hit_none")
                         self._update_mesh_visuals()
                         self.facesSelected.emit(self.get_selected_faces())
                         self._emit_seam_state_changed()
@@ -1004,7 +1007,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                 if self._isolate_mode and self._isolated_pick_indices:
                     self._isolated_pick_indices = set(self._selected_pick_face_indices().tolist())
 
-                self._recompute_seam_candidates()
+                self._mark_seam_candidates_dirty("selection_changed:face_click")
+                self._ensure_seam_candidates("mouseRelease:selection_face_click")
                 self._update_mesh_visuals()
                 self.facesSelected.emit(self.get_selected_faces())
                 self._emit_seam_state_changed()
@@ -1376,6 +1380,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._seam_candidate_edges = []
         self._seam_boundary_edge_set.clear()
         self._seam_pick_strategy = "triangle"
+        self._seam_candidates_dirty = False
+        self._seam_candidates_dirty_reason = ""
         self._feature_edge_cache_token = None
         self._feature_edges_global = []
 
@@ -1449,6 +1455,23 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         if not self._debug_selection:
             return
         print(f"[DXF_DEBUG_SELECTION] {message}")
+
+    def _mark_seam_candidates_dirty(self, reason: str) -> None:
+        self._seam_candidates_dirty = True
+        self._seam_candidates_dirty_reason = str(reason)
+        self._dbg_selection(f"_mark_seam_candidates_dirty({reason})")
+
+    def mark_seam_candidates_dirty(self, reason: str = "external") -> None:
+        self._mark_seam_candidates_dirty(reason)
+
+    def _ensure_seam_candidates(self, reason: str) -> None:
+        if not self._seam_candidates_dirty:
+            return
+        self._dbg_selection(
+            "_ensure_seam_candidates() recompute | "
+            f"reason={reason} dirty_reason={self._seam_candidates_dirty_reason}"
+        )
+        self._recompute_seam_candidates()
 
     def _snapshot_selection_seam_state(self) -> Dict[str, object]:
         return {
@@ -1595,7 +1618,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._build_pick_to_render_map()
         self._prepare_pick_raycast_cache()
         self._build_brep_edge_mesh_mapping()
-        self._recompute_seam_candidates()
+        self._mark_seam_candidates_dirty("set_mesh:model_changed")
+        self._ensure_seam_candidates("set_mesh")
         self._update_mesh_visuals()
         self._update_seam_overlays()
         self._reset_model_display_rotation()
@@ -1712,7 +1736,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                 self._update_seam_overlays()
                 self._emit_seam_state_changed()
         else:
-            self._recompute_seam_candidates()
+            self._mark_seam_candidates_dirty("mode_changed:cut")
+            self._ensure_seam_candidates("set_selection_mode:cut")
             self._update_seam_overlays()
             self._emit_seam_state_changed()
         self._dbg_selection(f"set_selection_mode({mode}) END | {self._debug_state_brief()}")
@@ -1729,12 +1754,15 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._hover_brep_edge_id = None
         self._active_brep_edge_id = None
         self._active_edge_pick = None
-        self._recompute_seam_candidates()
+        self._mark_seam_candidates_dirty("pick_mode_changed")
+        self._ensure_seam_candidates("set_brep_pick_mode")
         self._update_seam_overlays()
         self._emit_seam_state_changed()
 
     def set_advanced_mesh_seam_enabled(self, enabled: bool) -> None:
         self._advanced_mesh_seam_enabled = bool(enabled)
+        self._mark_seam_candidates_dirty("advanced_mode_toggled")
+        self._ensure_seam_candidates("set_advanced_mesh_seam_enabled")
         if not self._advanced_mesh_seam_enabled:
             return
         # Advanced mode works on tessellated mesh edges directly.
@@ -1754,7 +1782,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         if self._isolate_mode:
             self._isolated_pick_indices.clear()
             self._isolate_mode = False
-        self._recompute_seam_candidates()
+        self._mark_seam_candidates_dirty("selection_cleared")
+        self._ensure_seam_candidates("clear_selection")
         self._update_mesh_visuals()
         self.facesSelected.emit([])
         self._emit_seam_state_changed()
@@ -1887,7 +1916,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         if not self.selected_faces:
             return None
         if self.model_type == "brep":
-            self._recompute_seam_candidates()
+            self._ensure_seam_candidates("auto_guess_anchor_edge:brep")
             if not self._brep_boundary_chains:
                 return None
             best_chain = None
@@ -1906,7 +1935,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             self._update_seam_overlays()
             self._emit_seam_state_changed()
             return edge if edge is not None else (-1, -1)
-        self._recompute_seam_candidates()
+        self._ensure_seam_candidates("auto_guess_anchor_edge:mesh")
         candidates = sorted(self._seam_boundary_edge_set) if self._seam_boundary_edge_set else sorted(set(self._seam_candidate_edges))
         if not candidates:
             return None
@@ -2221,7 +2250,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.selected_faces = all_faces.difference(self.selected_faces)
         if self._isolate_mode:
             self._isolated_pick_indices = set(self._selected_pick_face_indices().tolist())
-        self._recompute_seam_candidates()
+        self._mark_seam_candidates_dirty("selection_inverted")
+        self._ensure_seam_candidates("invert_selection")
         self._update_mesh_visuals()
         self.facesSelected.emit(self.get_selected_faces())
         self._emit_seam_state_changed()
@@ -2742,6 +2772,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             self._hover_edge = None
             self._hover_brep_chain = None
             self._hover_brep_edge_id = None
+            self._seam_candidates_dirty = False
+            self._seam_candidates_dirty_reason = ""
             self._dbg_selection("_recompute_seam_candidates() early return: no mesh/pick_faces")
             return
 
@@ -2822,6 +2854,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             if self._hover_edge is not None and self._seam_candidate_edges:
                 if self._hover_edge not in set(self._seam_candidate_edges):
                     self._hover_edge = None
+            self._seam_candidates_dirty = False
+            self._seam_candidates_dirty_reason = ""
             self._dbg_selection(f"_recompute_seam_candidates() END [brep selected patch] | {self._debug_state_brief()}")
             return
 
@@ -2873,11 +2907,14 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                 self._hover_edge = None
             elif self.pick_faces is None:
                 self._hover_edge = None
+        self._seam_candidates_dirty = False
+        self._seam_candidates_dirty_reason = ""
         self._dbg_selection(f"_recompute_seam_candidates() END | {self._debug_state_brief()}")
 
     def _update_hovered_edge(self, sx: float, sy: float) -> None:
         if self.vertices is None or self.pick_faces is None:
             return
+        self._ensure_seam_candidates("hover_update")
         prev = self._hover_edge
         prev_chain = self._hover_brep_chain
         hovered = None
@@ -2974,6 +3011,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
     def _pick_mesh_edge_for_advanced_click(self, sx: float, sy: float) -> Tuple[int, int] | None:
         if self.vertices is None or self.pick_faces is None:
             return None
+        self._ensure_seam_candidates("advanced_mesh_click")
         candidates = self._selected_patch_boundary_edges_global()
         candidate_edges = sorted(candidates) if candidates else sorted(self._seam_boundary_edge_set)
 
