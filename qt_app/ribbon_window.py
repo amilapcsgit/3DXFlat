@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 from pathlib import Path
 import tempfile
 import time
@@ -686,6 +687,7 @@ class RibbonMainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
+        self._debug_selection = str(os.getenv("DXF_DEBUG_SELECTION", "0")).strip() == "1"
         self.setWindowTitle("3DXFlat Advanced (Qt)")
         self.setMinimumSize(1100, 700)
         self._settings = QSettings(self.SETTINGS_ORG, self.SETTINGS_APP)
@@ -1033,6 +1035,12 @@ class RibbonMainWindow(QMainWindow):
         self.view_cube.raise_()
 
     def _on_viewcube_face_clicked(self, face: str) -> None:
+        if self._debug_selection:
+            print(
+                "[DXF_DEBUG_SELECTION] _on_viewcube_face_clicked() "
+                f"face={face} faces_selected={len(self.viewport.get_selected_faces())} "
+                f"anchor={self.viewport.get_anchor_edge()} cuts={len(self.viewport.get_cut_edges())}"
+            )
         self.viewport.apply_view_preset(face)
         self.view_cube.raise_()
         self.statusBar().showMessage(f"View: {face.title()}", 1500)

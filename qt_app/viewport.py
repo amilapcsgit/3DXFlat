@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 import math
+import os
 from typing import Dict, Iterable, List, Sequence, Set, Tuple
 
 import numpy as np
@@ -271,6 +272,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.setAutoFillBackground(False)
         self.setMinimumSize(100, 100)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self._debug_selection = str(os.getenv("DXF_DEBUG_SELECTION", "0")).strip() == "1"
         self._viewport_theme = "light"
         self._vp_bg_color = tokens.VP_BG
         self._grid_minor_color = tokens.GRID_MINOR
@@ -875,9 +877,20 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                     self._update_hovered_edge(sx, sy)
                     mods = self._left_press_modifiers
                     ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+                    self._dbg_selection(
+                        "mouseRelease cut-mode click | "
+                        f"model_type={self.model_type} "
+                        f"faces_selected={len(self.selected_faces)} "
+                        f"advanced_mesh_seam={self._advanced_mesh_seam_enabled} "
+                        f"ctrl={ctrl} shift={bool(mods & Qt.KeyboardModifier.ShiftModifier)} "
+                        f"alt={bool(mods & Qt.KeyboardModifier.AltModifier)} "
+                        f"state={self._debug_state_brief()}"
+                    )
                     if self._advanced_mesh_seam_enabled and ctrl:
+                        self._dbg_selection("mouseRelease cut-mode branch=advanced_mesh_ctrl_click")
                         edge = self._pick_mesh_edge_for_advanced_click(sx, sy)
                         if edge is None:
+                            self._dbg_selection("mouseRelease advanced_mesh_ctrl_click -> no edge hit")
                             event.accept()
                             return
                         normalized = self._normalized_edge(edge)
@@ -908,11 +921,17 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                                 self.cut_edges.add(normalized)
                         self._update_seam_overlays()
                         self._emit_seam_state_changed()
+                        self._dbg_selection(
+                            "mouseRelease advanced_mesh_ctrl_click -> toggled "
+                            f"edge={normalized} state={self._debug_state_brief()}"
+                        )
                         event.accept()
                         return
                     if self.model_type == "brep":
+                        self._dbg_selection("mouseRelease cut-mode branch=brep_edge_or_chain")
                         chain = self._hover_brep_chain
                         if chain is None:
+                            self._dbg_selection("mouseRelease brep_edge_or_chain -> no hover chain")
                             event.accept()
                             return
                         if bool(mods & Qt.KeyboardModifier.ShiftModifier):
@@ -923,8 +942,10 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                                 event.accept()
                                 return
                     else:
+                        self._dbg_selection("mouseRelease cut-mode branch=mesh_edge_pick")
                         edge = self._hover_edge
                         if edge is None:
+                            self._dbg_selection("mouseRelease mesh_edge_pick -> no hover edge")
                             event.accept()
                             return
                         self._active_edge_pick = edge
@@ -1310,6 +1331,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         return (verts.min(axis=0) + verts.max(axis=0)) * 0.5
 
     def clear_view(self) -> None:
+        self._dbg_selection(f"clear_view() START | {self._debug_state_brief()}")
         self.model_type = "mesh"
         self._brep_tri_face_id = None
         self._brep_face_boundary_edge_ids = {}
@@ -1397,6 +1419,23 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.floating_orbit_btn.hide()
         self._emit_seam_state_changed()
         self.update()
+        self._dbg_selection(f"clear_view() END | {self._debug_state_brief()}")
+
+    def _debug_state_brief(self) -> str:
+        return (
+            f"faces={len(self.selected_faces)} "
+            f"anchor={self.anchor_edge} "
+            f"cuts={len(self.cut_edges)} "
+            f"hover={self._hover_edge} "
+            f"brep_chain_anchor={self._anchor_brep_chain is not None} "
+            f"brep_chain_cuts={len(self._cut_brep_chains)} "
+            f"pick_strategy={self._seam_pick_strategy}"
+        )
+
+    def _dbg_selection(self, message: str) -> None:
+        if not self._debug_selection:
+            return
+        print(f"[DXF_DEBUG_SELECTION] {message}")
 
     def set_mesh(
         self,
@@ -1409,6 +1448,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         face_colors: np.ndarray | None = None,
         brep_metadata: Dict | None = None,
     ) -> None:
+        self._dbg_selection(f"set_mesh() START | {self._debug_state_brief()} name={name}")
         self.mesh_name = name
         self.model_type = "brep" if isinstance(brep_metadata, dict) and brep_metadata else "mesh"
         self._brep_tri_face_id = None
@@ -1490,6 +1530,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.overlay.hide()
         self._emit_seam_state_changed()
         self._on_camera_event()
+        self._dbg_selection(f"set_mesh() END | {self._debug_state_brief()} name={name}")
 
     # Compatibility alias used in CAD viewport directives.
     def update_model(self, vertices: np.ndarray, faces: np.ndarray, mesh: trimesh.Trimesh | None = None) -> None:
@@ -1534,6 +1575,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self.update()
 
     def reset_camera(self) -> None:
+        self._dbg_selection(f"reset_camera() | {self._debug_state_brief()}")
         if self.vertices is not None:
             self._reset_model_display_rotation()
             self._fit_camera_to_mesh()
@@ -1542,6 +1584,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._on_camera_event()
 
     def apply_view_preset(self, preset: str) -> None:
+        self._dbg_selection(f"apply_view_preset({preset}) START | {self._debug_state_brief()}")
         if self.vertices is None:
             return
         mins = self.vertices.min(axis=0)
@@ -1573,8 +1616,10 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._camera_up = up
         self.update()
         self._on_camera_event()
+        self._dbg_selection(f"apply_view_preset({preset}) END | {self._debug_state_brief()}")
 
     def set_selection_mode(self, mode: str) -> None:
+        self._dbg_selection(f"set_selection_mode({mode}) START | {self._debug_state_brief()}")
         self.selection_mode = mode
         if self.selection_mode != "cut":
             self._hover_brep_chain = None
@@ -1587,6 +1632,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             self._recompute_seam_candidates()
             self._update_seam_overlays()
             self._emit_seam_state_changed()
+        self._dbg_selection(f"set_selection_mode({mode}) END | {self._debug_state_brief()}")
 
     def set_brep_pick_mode(self, mode: str) -> None:
         normalized = str(mode).strip().lower()
@@ -1617,7 +1663,9 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._emit_seam_state_changed()
 
     def clear_selection(self) -> None:
+        self._dbg_selection(f"clear_selection() START | {self._debug_state_brief()}")
         if not self.selected_faces:
+            self._dbg_selection("clear_selection() skipped: no selected faces")
             return
         self.selected_faces.clear()
         if self._isolate_mode:
@@ -1627,6 +1675,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._update_mesh_visuals()
         self.facesSelected.emit([])
         self._emit_seam_state_changed()
+        self._dbg_selection(f"clear_selection() END | {self._debug_state_brief()}")
 
     def invert_selection(self) -> None:
         self._invert_selection()
@@ -1689,6 +1738,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         return (action, edge)
 
     def clear_cut_edges(self) -> None:
+        self._dbg_selection(f"clear_cut_edges() START | {self._debug_state_brief()}")
         if self.model_type == "brep":
             changed = bool(self._cut_brep_chains) or (self._anchor_brep_chain is not None) or (self._active_brep_chain is not None)
             self._cut_brep_chains.clear()
@@ -1706,6 +1756,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             self._update_seam_overlays()
             if changed:
                 self._emit_seam_state_changed()
+            self._dbg_selection(f"clear_cut_edges() END [brep] | {self._debug_state_brief()}")
             return
         changed = bool(self.cut_edges) or (self.anchor_edge is not None) or (self._active_edge_pick is not None)
         self.cut_edges.clear()
@@ -1714,8 +1765,10 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._update_seam_overlays()
         if changed:
             self._emit_seam_state_changed()
+        self._dbg_selection(f"clear_cut_edges() END [mesh] | {self._debug_state_brief()}")
 
     def clear_seam_state(self) -> None:
+        self._dbg_selection(f"clear_seam_state() | {self._debug_state_brief()}")
         self.clear_cut_edges()
 
     def remove_cut_edge(self, edge: Sequence[int]) -> Tuple[int, int] | None:
@@ -2565,6 +2618,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         return list(self._feature_edges_global)
 
     def _recompute_seam_candidates(self) -> None:
+        self._dbg_selection(f"_recompute_seam_candidates() START | {self._debug_state_brief()}")
         self._seam_candidate_edges = []
         self._seam_boundary_edge_set.clear()
         self._brep_boundary_edge_ids.clear()
@@ -2576,6 +2630,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             self._hover_edge = None
             self._hover_brep_chain = None
             self._hover_brep_edge_id = None
+            self._dbg_selection("_recompute_seam_candidates() early return: no mesh/pick_faces")
             return
 
         if self._brep_selection_enabled() and self.selected_faces:
@@ -2609,15 +2664,20 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             valid_units: set[Tuple[int, ...]] = set(self._brep_boundary_chains)
             valid_units.update((int(eid),) for eid in boundary_edge_ids)
             if self._anchor_brep_chain is not None and tuple(self._anchor_brep_chain) not in valid_units:
+                self._dbg_selection("_recompute_seam_candidates() dropped anchor_brep_chain (not in valid units)")
                 self._anchor_brep_chain = None
             self._cut_brep_chains = {tuple(ch) for ch in self._cut_brep_chains if tuple(ch) in valid_units}
             if self._hover_brep_chain is not None and tuple(self._hover_brep_chain) not in valid_units:
+                self._dbg_selection("_recompute_seam_candidates() dropped hover_brep_chain (not in valid units)")
                 self._hover_brep_chain = None
             if self._active_brep_chain is not None and tuple(self._active_brep_chain) not in valid_units:
+                self._dbg_selection("_recompute_seam_candidates() dropped active_brep_chain (not in valid units)")
                 self._active_brep_chain = None
             if self._hover_brep_edge_id is not None and int(self._hover_brep_edge_id) not in self._brep_boundary_edge_ids:
+                self._dbg_selection("_recompute_seam_candidates() dropped hover_brep_edge_id (not in boundary)")
                 self._hover_brep_edge_id = None
             if self._active_brep_edge_id is not None and int(self._active_brep_edge_id) not in self._brep_boundary_edge_ids:
+                self._dbg_selection("_recompute_seam_candidates() dropped active_brep_edge_id (not in boundary)")
                 self._active_brep_edge_id = None
 
             mesh_boundary_edges: set[Tuple[int, int]] = set()
@@ -2637,9 +2697,11 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             if self._hover_edge is not None and self._seam_candidate_edges:
                 if self._hover_edge not in set(self._seam_candidate_edges):
                     self._hover_edge = None
+            self._dbg_selection(f"_recompute_seam_candidates() END [brep selected patch] | {self._debug_state_brief()}")
             return
 
         # No active B-Rep face patch: clear chain state and use existing mesh heuristics.
+        self._dbg_selection("_recompute_seam_candidates() no active brep patch -> clearing seam/chain state")
         self._hover_brep_chain = None
         self._active_brep_chain = None
         self._hover_brep_edge_id = None
@@ -2684,6 +2746,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                 self._hover_edge = None
             elif self.pick_faces is None:
                 self._hover_edge = None
+        self._dbg_selection(f"_recompute_seam_candidates() END | {self._debug_state_brief()}")
 
     def _update_hovered_edge(self, sx: float, sy: float) -> None:
         if self.vertices is None or self.pick_faces is None:
