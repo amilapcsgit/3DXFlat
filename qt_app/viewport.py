@@ -329,6 +329,9 @@ class ThreeDViewportWidget(gl.GLViewWidget):
 
         self._drag_start: Tuple[float, float] | None = None
         self._left_dragging = False
+        self._left_press_modifiers = Qt.KeyboardModifier.NoModifier
+        self._left_press_forwarded = False
+        self._click_drag_threshold_px = 8.0
         self._nav_last: Tuple[float, float] | None = None
         self._active_nav_mode: str | None = None
         self.is_rotating = False
@@ -728,6 +731,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._nav_last = (float(p.x()), float(p.y()))
         self._drag_start = (float(p.x()), float(p.y()))
         self._left_dragging = False
+        self._left_press_modifiers = event.modifiers()
+        self._left_press_forwarded = False
         self._active_nav_mode = None
 
         if event.button() == Qt.MouseButton.MiddleButton:
@@ -760,8 +765,13 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             event.accept()
             return
 
-        # Selection is LMB click only.
-        if event.button() in (Qt.MouseButton.LeftButton, Qt.MouseButton.RightButton):
+        # Preserve drag navigation in the base widget while keeping click-selection custom.
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._left_press_forwarded = True
+            super().mousePressEvent(event)
+            return
+
+        if event.button() == Qt.MouseButton.RightButton:
             event.accept()
             return
         super().mousePressEvent(event)
@@ -797,8 +807,11 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         if (event.buttons() & Qt.MouseButton.LeftButton) and self._drag_start is not None:
             ddx = cur[0] - self._drag_start[0]
             ddy = cur[1] - self._drag_start[1]
-            if (ddx * ddx + ddy * ddy) > 25.0:
+            if (ddx * ddx + ddy * ddy) > (self._click_drag_threshold_px * self._click_drag_threshold_px):
                 self._left_dragging = True
+                if self._left_press_forwarded:
+                    super().mouseMoveEvent(event)
+                    return
             event.accept()
             return
 
@@ -840,14 +853,21 @@ class ThreeDViewportWidget(gl.GLViewWidget):
 
         if event.button() == Qt.MouseButton.LeftButton:
             try:
+                if self._left_dragging:
+                    if self._left_press_forwarded:
+                        super().mouseReleaseEvent(event)
+                    else:
+                        event.accept()
+                    return
+
                 if self.selection_mode == "cut":
-                    if self.vertices is None or self.pick_faces is None or self._left_dragging:
+                    if self.vertices is None or self.pick_faces is None:
                         event.accept()
                         return
                     sx = float(event.position().x())
                     sy = float(event.position().y())
                     self._update_hovered_edge(sx, sy)
-                    mods = event.modifiers()
+                    mods = self._left_press_modifiers
                     if self.model_type == "brep":
                         chain = self._hover_brep_chain
                         if chain is None:
@@ -884,11 +904,11 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                     event.accept()
                     return
 
-                if self.selection_mode == "off" or self.vertices is None or self.pick_faces is None or self._left_dragging:
+                if self.selection_mode == "off" or self.vertices is None or self.pick_faces is None:
                     event.accept()
                     return
                 hit = self._raycast_face(float(event.position().x()), float(event.position().y()))
-                mods = event.modifiers()
+                mods = self._left_press_modifiers
                 ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
                 alt = bool(mods & Qt.KeyboardModifier.AltModifier)
                 if hit is None:
@@ -921,6 +941,8 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             finally:
                 self._drag_start = None
                 self._left_dragging = False
+                self._left_press_forwarded = False
+                self._left_press_modifiers = Qt.KeyboardModifier.NoModifier
 
         if event.button() == Qt.MouseButton.RightButton:
             self._show_context_menu(event.globalPosition().toPoint())
