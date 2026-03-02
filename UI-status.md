@@ -730,6 +730,52 @@ Current B-Rep limitation:
 - If mapping yields zero valid mesh edges for a chosen chain, flatten may report that cuts are outside the patch.
 - UI still shows representative edges in the panel (not full chain names yet).
 
+### 7.1 B-Rep Runtime Hardening Follow-up (B-rep)
+
+Implemented follow-up stabilization after live runtime tests:
+
+- `3DXFlat.bat`
+  - Launcher now keeps app execution on the project/runtime venv interpreter and does not switch the whole app to micromamba Python.
+  - OCC runtime is provisioned in a local micromamba env (`python=3.12` + `pythonocc-core`) using short Windows-safe prefixes (`%USERPROFILE%\3DXF\...`) to avoid long-path extraction/cache failures.
+  - OCC overlay strategy changed from full `site-packages` sharing to OCC-only overlay copy:
+    - source: `<mamba_env>\Lib\site-packages\OCC`
+    - target: `%LOCALAPPDATA%\3DXFlat\occ-overlay\OCC`
+  - OCC DLL path injection is now conditional:
+    - first try OCC import with package overlay only,
+    - only inject mamba DLL dirs into `PATH` if OCC import still fails.
+    - This avoids OpenGL/Qt conflicts caused by global DLL path pollution.
+  - Dependency sanity check no longer imports `customtkinter` (prevents false failure on Python builds without Tk).
+
+- `flatten_surface/flatten_surface.py`
+  - Removed top-level `tkinter` imports.
+  - `tkinter` is now imported lazily only in interactive CLI file-picker flow (`main()` with missing `path_input`).
+  - Qt path (`flatten_mesh`) no longer depends on Tk being installed.
+
+- `main.py`
+  - Tk fallback import now has explicit error handling.
+  - If Qt fails and Tk is unavailable, the app reports a clear fallback failure instead of masking root cause.
+
+- `qt_app/brep_import.py`
+  - Added explicit OCC runtime preparation in-process:
+    - honors `MAMBA_ENV_PREFIX` and `OCC_OVERLAY_SITE`,
+    - adds candidate OCC DLL directories via `os.add_dll_directory(...)` on Windows.
+  - OCC capability check is now strict and practical:
+    - validates `OCC.Core.IFSelect`, `OCC.Core.STEPControl`, and `OCC.Core.IGESControl` imports (not just `import OCC.Core`).
+  - Added pythonocc wrapper compatibility handling:
+    - triangulation API variants (`Node/Triangle` vs `Nodes/Triangles`),
+    - TopExp mapping symbols available in current wrappers.
+
+Result of follow-up:
+
+- Qt app startup no longer hard-fails due to missing `tkinter` import side-effects.
+- STEP/IGES loader no longer fails at `_IFSelect` DLL load in configured OCC overlay runtime.
+- OCC integration remains optional and does not force STL users onto OCC runtime.
+
+Additional current CAD-data limitation observed:
+
+- Some STEP files can be topologically edge-only in OCC for current reader/settings (example observed: `data/ProvaFunzioneTelo.STEP` => edges detected, zero faces).
+- In that case loader correctly reports no B-Rep faces and import cannot proceed as face-based CAD patch workflow.
+
 ## How the 3D Viewport Currently Works
 
 `ThreeDViewportWidget` (`qt_app/viewport.py`) extends `pyqtgraph.opengl.GLViewWidget` and manages:
@@ -839,6 +885,14 @@ Key rendering flow:
   - `python -m py_compile qt_app/edge_selection.py`
   - `python -m py_compile tests/test_edge_selection.py`
   - `python -m pytest tests/test_edge_selection.py -q` (not executable in this environment: `pytest` missing)
+- B-rep runtime hardening checks:
+  - `python -m py_compile qt_app/brep_import.py`
+  - `python -m py_compile flatten_surface/flatten_surface.py`
+  - `python -m py_compile main.py`
+  - venv + OCC overlay import check:
+    - `import numpy, OCC.Core, pyqtgraph, OpenGL`
+  - B-Rep load smoke check in runtime overlay:
+    - `load_brep("data/test Amila.STEP")` succeeded
 - PHASE 2 step-gate syntax checks:
   - `python -m py_compile qt_app/unified_command_bar.py`
   - `python -m py_compile qt_app/ribbon_window.py`
