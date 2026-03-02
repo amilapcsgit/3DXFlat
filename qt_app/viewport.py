@@ -322,6 +322,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._brep_anchor_display_edge: Tuple[int, int] | None = None
         self._brep_display_edge_to_chain: Dict[Tuple[int, int], Tuple[int, ...]] = {}
         self._brep_pick_mode = "edge"
+        self._advanced_mesh_seam_enabled = False
         self._seam_candidate_edges: List[Tuple[int, int]] = []
         self._seam_boundary_edge_set: Set[Tuple[int, int]] = set()
         self._seam_pick_strategy = "triangle"
@@ -872,6 +873,42 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                     sy = float(event.position().y())
                     self._update_hovered_edge(sx, sy)
                     mods = self._left_press_modifiers
+                    ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+                    if self._advanced_mesh_seam_enabled and ctrl:
+                        edge = self._pick_mesh_edge_for_advanced_click(sx, sy)
+                        if edge is None:
+                            event.accept()
+                            return
+                        normalized = self._normalized_edge(edge)
+                        self._active_edge_pick = normalized
+                        self._hover_edge = normalized
+                        if self.model_type == "brep":
+                            # Advanced mode bypasses B-Rep chain state and works directly on mesh edges.
+                            self._hover_brep_chain = None
+                            self._active_brep_chain = None
+                            self._hover_brep_edge_id = None
+                            self._active_brep_edge_id = None
+                            self._anchor_brep_chain = None
+                            self._cut_brep_chains.clear()
+                            self._brep_cut_display_edges = []
+                            self._brep_anchor_display_edge = None
+                            self._brep_display_edge_to_chain = {}
+                        if bool(mods & Qt.KeyboardModifier.ShiftModifier):
+                            self.anchor_edge = normalized
+                            if normalized in self.cut_edges:
+                                self.cut_edges.discard(normalized)
+                        else:
+                            if self.anchor_edge is not None and normalized == self.anchor_edge:
+                                event.accept()
+                                return
+                            if normalized in self.cut_edges:
+                                self.cut_edges.discard(normalized)
+                            else:
+                                self.cut_edges.add(normalized)
+                        self._update_seam_overlays()
+                        self._emit_seam_state_changed()
+                        event.accept()
+                        return
                     if self.model_type == "brep":
                         chain = self._hover_brep_chain
                         if chain is None:
@@ -1566,6 +1603,18 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._update_seam_overlays()
         self._emit_seam_state_changed()
 
+    def set_advanced_mesh_seam_enabled(self, enabled: bool) -> None:
+        self._advanced_mesh_seam_enabled = bool(enabled)
+        if not self._advanced_mesh_seam_enabled:
+            return
+        # Advanced mode works on tessellated mesh edges directly.
+        self._hover_brep_chain = None
+        self._hover_brep_edge_id = None
+        self._active_brep_chain = None
+        self._active_brep_edge_id = None
+        self._update_seam_overlays()
+        self._emit_seam_state_changed()
+
     def clear_selection(self) -> None:
         if not self.selected_faces:
             return
@@ -1950,8 +1999,12 @@ class ThreeDViewportWidget(gl.GLViewWidget):
 
     def _emit_seam_state_changed(self) -> None:
         if self.model_type == "brep":
-            anchor_payload = None if self._brep_anchor_display_edge is None else tuple(self._brep_anchor_display_edge)
-            cut_payload = [tuple(e) for e in sorted(self._brep_cut_display_edges)]
+            anchor_ref = self._brep_anchor_display_edge if self._brep_anchor_display_edge is not None else self.anchor_edge
+            anchor_payload = None if anchor_ref is None else tuple(anchor_ref)
+            if self._brep_cut_display_edges:
+                cut_payload = [tuple(e) for e in sorted(self._brep_cut_display_edges)]
+            else:
+                cut_payload = [tuple(e) for e in sorted(self.cut_edges)]
             active_edge = self._hover_edge if self._hover_edge is not None else self._active_edge_pick
             active_payload = None if active_edge is None else tuple(active_edge)
         else:
@@ -1963,6 +2016,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             {
                 "model_type": self.model_type,
                 "brep_pick_mode": self._brep_pick_mode,
+                "advanced_mesh_seam": bool(self._advanced_mesh_seam_enabled),
                 "active_edge": active_payload,
                 "hover_edge": None if self._hover_edge is None else tuple(self._hover_edge),
                 "anchor_edge": anchor_payload,
@@ -2729,6 +2783,64 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         if prev != self._hover_edge or prev_chain != self._hover_brep_chain:
             self._update_seam_overlays()
             self._emit_seam_state_changed()
+
+    def _selected_patch_boundary_edges_global(self) -> Set[Tuple[int, int]]:
+        if self.pick_faces is None:
+            return set()
+        selected_pick_idx = self._selected_pick_face_indices()
+        if len(selected_pick_idx) == 0:
+            return set()
+        try:
+            sub = edge_selection.build_selected_submesh(self.pick_faces, selected_pick_idx)
+            faces_sub = np.asarray(sub.get("faces_sub", np.empty((0, 3), dtype=np.int64)), dtype=np.int64)
+            vmap = np.asarray(sub.get("vertex_ids_global", np.empty((0,), dtype=np.int64)), dtype=np.int64)
+            boundary_local = edge_selection.compute_patch_boundary_edges(faces_sub)
+        except Exception:
+            return set()
+
+        out: Set[Tuple[int, int]] = set()
+        for a, b in boundary_local:
+            if a < 0 or b < 0 or a >= len(vmap) or b >= len(vmap):
+                continue
+            out.add(self._normalized_edge((vmap[a], vmap[b])))
+        return out
+
+    def _pick_mesh_edge_for_advanced_click(self, sx: float, sy: float) -> Tuple[int, int] | None:
+        if self.vertices is None or self.pick_faces is None:
+            return None
+        candidates = self._selected_patch_boundary_edges_global()
+        candidate_edges = sorted(candidates) if candidates else sorted(self._seam_boundary_edge_set)
+
+        hovered: Tuple[int, int] | None = None
+        if candidate_edges and len(candidate_edges) <= self._seam_screen_pick_edge_cap:
+            viewproj = self._viewproj_matrix_np()
+            if viewproj is not None:
+                try:
+                    hovered = edge_selection.screen_space_pick_edge(
+                        mouse_xy=(sx, sy),
+                        edges=candidate_edges,
+                        vertices=self._display_vertices_for_projection(),
+                        viewproj=viewproj,
+                        viewport_w=int(self.width()),
+                        viewport_h=int(self.height()),
+                        px_tol=self._seam_pick_px_tol,
+                    )
+                except Exception:
+                    hovered = None
+
+        if hovered is None:
+            hit = self._raycast_face_hit(sx, sy)
+            if hit is None:
+                return None
+            face_id, hit_point = hit
+            candidate = self._nearest_edge_on_face(int(face_id), hit_point)
+            if candidates and candidate not in candidates:
+                return None
+            hovered = candidate
+
+        if hovered is None:
+            return None
+        return self._normalized_edge(hovered)
 
     def _schedule_hover_pick(self, sx: float, sy: float) -> None:
         self._pending_hover_pos = (float(sx), float(sy))

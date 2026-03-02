@@ -913,6 +913,7 @@ class RibbonMainWindow(QMainWindow):
         self._apply_selection_mode()
         self._on_seam_state_changed({"active_edge": None, "anchor_edge": None, "cut_edges": []})
         self.flatten_panel.set_pick_mode("edge")
+        self.flatten_panel.set_advanced_mesh_seam_enabled(False)
         self.flatten_panel.set_precision_value(int(self.seam_slider.value()))
         self._update_workflow_enablement()
 
@@ -939,6 +940,7 @@ class RibbonMainWindow(QMainWindow):
         self.flatten_panel.requestAutoGuessAnchor.connect(self._on_auto_guess_anchor_clicked)
         self.flatten_panel.precisionChanged.connect(self._on_panel_precision_changed)
         self.flatten_panel.pickModeChanged.connect(self._on_panel_pick_mode_changed)
+        self.flatten_panel.advancedMeshSeamChanged.connect(self._on_advanced_mesh_seam_changed)
 
         self.units_combo.currentTextChanged.connect(self._update_dimension_label_only)
         self.technical_mode_btn.toggled.connect(self.viewport.set_technical_mode)
@@ -1199,6 +1201,13 @@ class RibbonMainWindow(QMainWindow):
             self.statusBar().showMessage("B-Rep seam selection: Chain mode.", 1800)
         else:
             self.statusBar().showMessage("B-Rep seam selection: Edge mode.", 1800)
+
+    def _on_advanced_mesh_seam_changed(self, enabled: bool) -> None:
+        self.viewport.set_advanced_mesh_seam_enabled(bool(enabled))
+        if enabled:
+            self.statusBar().showMessage("Advanced mesh seam enabled: use Ctrl+Click in Cut/Seam mode.", 2600)
+        else:
+            self.statusBar().showMessage("Advanced mesh seam disabled.", 1600)
 
     def _on_isolate_toggled(self, checked: bool) -> None:
         self.viewport.set_isolate_mode(checked)

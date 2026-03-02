@@ -5,6 +5,7 @@ from typing import Dict, Iterable, Sequence, Tuple
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
     QFrame,
     QGroupBox,
     QHBoxLayout,
@@ -36,6 +37,7 @@ class FlattenPanelWidget(QWidget):
     requestAutoGuessAnchor = Signal()
     precisionChanged = Signal(int)
     pickModeChanged = Signal(str)
+    advancedMeshSeamChanged = Signal(bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -89,6 +91,9 @@ class FlattenPanelWidget(QWidget):
         self.pick_mode_group.addButton(self.radio_pick_chain)
         pick_mode_layout.addWidget(self.radio_pick_edge)
         pick_mode_layout.addWidget(self.radio_pick_chain)
+        self.chk_advanced_mesh_seam = QCheckBox("Advanced mesh seam (Ctrl+Click)", self.group_pick_mode)
+        self.chk_advanced_mesh_seam.setChecked(False)
+        pick_mode_layout.addWidget(self.chk_advanced_mesh_seam)
         root.addWidget(self.group_pick_mode)
 
         self.group_cuts = QGroupBox("Tagli di scarico (Relief cuts)", self)
@@ -152,6 +157,7 @@ class FlattenPanelWidget(QWidget):
         self.btn_remove_selected.clicked.connect(self._emit_remove_selected)
         self.precision_slider.valueChanged.connect(self._on_precision_changed)
         self.radio_pick_edge.toggled.connect(self._on_pick_mode_changed)
+        self.chk_advanced_mesh_seam.toggled.connect(self.advancedMeshSeamChanged.emit)
 
     def _make_separator(self) -> QWidget:
         sep = QFrame(self.group_status)
@@ -192,6 +198,9 @@ class FlattenPanelWidget(QWidget):
             self.radio_pick_chain.setChecked(True)
         else:
             self.radio_pick_edge.setChecked(True)
+
+    def set_advanced_mesh_seam_enabled(self, enabled: bool) -> None:
+        self.chk_advanced_mesh_seam.setChecked(bool(enabled))
 
     def set_anchor_edge(self, edge: Sequence[int] | None, label: str | None = None) -> None:
         if edge is None:
