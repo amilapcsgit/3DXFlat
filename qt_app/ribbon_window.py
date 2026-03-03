@@ -1058,6 +1058,15 @@ class RibbonMainWindow(QMainWindow):
             self.isolate_btn.blockSignals(False)
 
     def _apply_selection_mode(self) -> None:
+        if self._debug_selection:
+            print(
+                "[DXF_DEBUG_SELECTION] _apply_selection_mode() "
+                f"smart={self.smart_select_btn.isChecked()} "
+                f"single={self.single_pick_btn.isChecked()} "
+                f"cut={self.cut_seam_mode_btn.isChecked()} "
+                f"faces_selected={len(self.viewport.get_selected_faces())} "
+                f"anchor={self.viewport.get_anchor_edge()} cuts={len(self.viewport.get_cut_edges())}"
+            )
         if self.smart_select_btn.isChecked():
             self.viewport.set_selection_mode("smart")
             self.statusBar().showMessage("Face selection: Smart", 1500)
@@ -1094,6 +1103,7 @@ class RibbonMainWindow(QMainWindow):
         anchor = info.get("anchor_edge")
         cuts = info.get("cut_edges") or []
         cut_count = int(info.get("cut_chain_count", len(cuts)))
+        patch_active = bool(info.get("patch_active", bool(self.viewport.get_selected_faces())))
         boundary_edges = {self._norm_edge(e) for e in (info.get("boundary_edges") or [])}
         anchor_boundary = None
         if anchor is not None:
@@ -1112,6 +1122,8 @@ class RibbonMainWindow(QMainWindow):
 
         active_txt = "-" if not active else f"v{int(active[0])}-v{int(active[1])}"
         patch_status = self._patch_state_text()
+        if model_type == "brep" and (not patch_active) and (anchor is not None or len(cuts) > 0):
+            patch_status = "inactive (no patch)"
         anchor_status = "none" if not anchor else "set"
         strategy = str(info.get("pick_strategy", "-"))
         self.flatten_panel.set_status_line(

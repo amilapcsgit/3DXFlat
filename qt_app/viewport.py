@@ -330,6 +330,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._seam_candidate_edges: List[Tuple[int, int]] = []
         self._seam_boundary_edge_set: Set[Tuple[int, int]] = set()
         self._seam_pick_strategy = "triangle"
+        self._seam_patch_active = False
         self._seam_pick_px_tol = 10.0
         self._seam_feature_angle_deg = 42.0
         self._seam_screen_pick_edge_cap = 24000
@@ -1017,6 +1018,10 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                     self.selected_faces.update(new_faces)
                 else:
                     self.selected_faces = set(new_faces)
+                self._dbg_selection(
+                    "face selection updated via click | "
+                    f"ctrl={ctrl} alt={alt} new_units={len(new_faces)} total_selected={len(self.selected_faces)}"
+                )
 
                 if self._isolate_mode and self._isolated_pick_indices:
                     self._isolated_pick_indices = set(self._selected_pick_face_indices().tolist())
@@ -1394,6 +1399,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._seam_candidate_edges = []
         self._seam_boundary_edge_set.clear()
         self._seam_pick_strategy = "triangle"
+        self._seam_patch_active = False
         self._seam_candidates_dirty = False
         self._seam_candidates_dirty_reason = ""
         self._feature_edge_cache_token = None
@@ -1462,6 +1468,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             f"manual_cuts={len(self._brep_manual_cut_edges)} "
             f"brep_chain_anchor={self._anchor_brep_chain is not None} "
             f"brep_chain_cuts={len(self._cut_brep_chains)} "
+            f"patch_active={self._seam_patch_active} "
             f"pick_strategy={self._seam_pick_strategy}"
         )
 
@@ -1512,6 +1519,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             "seam_candidate_edges": [tuple(e) for e in self._seam_candidate_edges],
             "seam_boundary_edge_set": set(self._seam_boundary_edge_set),
             "seam_pick_strategy": str(self._seam_pick_strategy),
+            "seam_patch_active": bool(self._seam_patch_active),
         }
 
     def _restore_selection_seam_state(self, state: Dict[str, object], *, context: str) -> None:
@@ -1544,6 +1552,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._seam_candidate_edges = [self._normalized_edge(e) for e in state.get("seam_candidate_edges", [])]
         self._seam_boundary_edge_set = {self._normalized_edge(e) for e in state.get("seam_boundary_edge_set", set())}
         self._seam_pick_strategy = str(state.get("seam_pick_strategy", self._seam_pick_strategy))
+        self._seam_patch_active = bool(state.get("seam_patch_active", self._seam_patch_active))
         self._update_mesh_visuals()
         self._update_seam_overlays()
         self.facesSelected.emit(self.get_selected_faces())
@@ -1613,6 +1622,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._seam_candidate_edges = []
         self._seam_boundary_edge_set.clear()
         self._seam_pick_strategy = "triangle"
+        self._seam_patch_active = False
         self._feature_edge_cache_token = None
         self._feature_edges_global = []
         self._face_normals = None
@@ -2193,6 +2203,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
                 "model_type": self.model_type,
                 "brep_pick_mode": self._brep_pick_mode,
                 "advanced_mesh_seam": bool(self._advanced_mesh_seam_enabled),
+                "patch_active": bool(self._seam_patch_active),
                 "active_edge": active_payload,
                 "hover_edge": None if self._hover_edge is None else tuple(self._hover_edge),
                 "anchor_edge": anchor_payload,
@@ -2777,6 +2788,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
         self._dbg_selection(f"_recompute_seam_candidates() START | {self._debug_state_brief()}")
         self._seam_candidate_edges = []
         self._seam_boundary_edge_set.clear()
+        self._seam_patch_active = False
         self._brep_boundary_edge_ids.clear()
         self._brep_boundary_chains = []
         self._brep_edge_to_chain = {}
@@ -2792,6 +2804,7 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             return
 
         if self._brep_selection_enabled() and self.selected_faces:
+            self._seam_patch_active = True
             edge_counts: Dict[int, int] = {}
             for face_id in sorted(self.selected_faces):
                 for edge_id in self._brep_face_boundary_edge_ids.get(int(face_id), []):
@@ -2842,7 +2855,11 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             for edge_id in boundary_edge_ids:
                 for e in self._brep_chain_mesh_edges((int(edge_id),)):
                     mesh_boundary_edges.add(self._normalized_edge(e))
-            self._seam_boundary_edge_set = set(mesh_boundary_edges)
+            direct_patch_boundary_edges = self._selected_patch_boundary_edges_global()
+            if direct_patch_boundary_edges:
+                self._seam_boundary_edge_set = set(direct_patch_boundary_edges) | set(mesh_boundary_edges)
+            else:
+                self._seam_boundary_edge_set = set(mesh_boundary_edges)
             if self._brep_manual_anchor_edge is not None:
                 ma = self._normalized_edge(self._brep_manual_anchor_edge)
                 if ma not in self._seam_boundary_edge_set:
@@ -2873,25 +2890,25 @@ class ThreeDViewportWidget(gl.GLViewWidget):
             self._dbg_selection(f"_recompute_seam_candidates() END [brep selected patch] | {self._debug_state_brief()}")
             return
 
-        # No active B-Rep face patch: clear chain state and use existing mesh heuristics.
-        self._dbg_selection("_recompute_seam_candidates() no active brep patch -> clearing seam/chain state")
-        self._hover_brep_chain = None
-        self._active_brep_chain = None
-        self._hover_brep_edge_id = None
-        self._active_brep_edge_id = None
-        self._anchor_brep_chain = None
-        self._brep_manual_anchor_edge = None
-        self._brep_manual_cut_edges.clear()
-        self._cut_brep_chains.clear()
-        self.cut_edges.clear()
-        self.anchor_edge = None
-        self._brep_cut_display_edges = []
-        self._brep_anchor_display_edge = None
-        self._brep_display_edge_to_chain = {}
-        self._brep_edge_to_chain = {}
+        # No active B-Rep face patch: keep existing seam selections as inactive, do not wipe user data.
+        if self._brep_selection_enabled() and not self.selected_faces:
+            self._dbg_selection("_recompute_seam_candidates() brep with empty face selection -> keeping seam state inactive")
+            self._hover_brep_chain = None
+            self._active_brep_chain = None
+            self._hover_brep_edge_id = None
+            self._active_brep_edge_id = None
+            self._seam_candidate_edges = []
+            self._seam_boundary_edge_set.clear()
+            self._seam_pick_strategy = "inactive"
+            self._sync_brep_chain_edge_state()
+            self._seam_candidates_dirty = False
+            self._seam_candidates_dirty_reason = ""
+            self._dbg_selection(f"_recompute_seam_candidates() END [brep inactive] | {self._debug_state_brief()}")
+            return
 
         selected_pick_idx = self._selected_pick_face_indices()
         if len(selected_pick_idx):
+            self._seam_patch_active = True
             sub = edge_selection.build_selected_submesh(self.pick_faces, selected_pick_idx)
             faces_sub = np.asarray(sub.get("faces_sub", np.empty((0, 3), dtype=np.int64)), dtype=np.int64)
             vmap = np.asarray(sub.get("vertex_ids_global", np.empty((0,), dtype=np.int64)), dtype=np.int64)

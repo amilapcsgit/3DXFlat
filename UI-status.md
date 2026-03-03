@@ -836,6 +836,11 @@ Implemented follow-up fixes on branch `B-rep-selection-persistence`:
    - Works with selected B-Rep faces still active (no deselection required).
    - Added persistent manual B-Rep mesh-edge seam state so advanced cuts are not dropped by B-Rep chain sync.
 
+2b. Empty-patch persistence rule
+   - If B-Rep face selection becomes empty, existing seam anchor/cuts are now preserved and shown as:
+     - `Patch: inactive (no patch)`
+   - Seam data is no longer auto-cleared on empty selection; only incompatible edges are pruned when a new patch is selected.
+
 3. Seam candidate recompute strategy is now dirty-flag based
    - Recompute is triggered by:
      - selection changes,
